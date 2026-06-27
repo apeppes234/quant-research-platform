@@ -1,0 +1,12 @@
+# Managed Agents environment — the per-session container template (docs/02, docs/12).
+# limited networking + allow_mcp_servers so the container can reach our self-hosted URL MCPs,
+# but nothing else by default. Applied via `ant beta:environments create|update`.
+name: quant-research-cloud
+description: Cloud container for quant research sessions; limited egress, MCP servers allowed.
+config:
+  type: cloud
+  networking:
+    type: limited
+    allow_mcp_servers: true        # REQUIRED — else the agent can't reach our MCP URLs and tools fail silently
+    allow_package_managers: false  # flip true only if a tool genuinely needs pip/npm at runtime
+    allowed_hosts: []              # add non-MCP hosts here if ever needed

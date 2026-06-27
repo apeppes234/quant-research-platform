@@ -1,0 +1,39 @@
+{
+  "version": "strategy-contract-v1",
+  "description": "Authoring rules every candidate QuantConnect strategy must satisfy. Consumed by the Modeling agent and the validator. See docs/11.",
+  "workflow": [
+    "retrieve relevant patterns via search_knowledge (corpus=contract, repo, strategy_library)",
+    "start from templates/starter_algorithm.py",
+    "write /workspace/algo.py",
+    "run the validator (validator/validate.py) — MUST pass",
+    "QC create_compile + read_compile — fix ALL warnings",
+    "create_backtest on train+validation only",
+    "evaluate the sealed holdout EXACTLY ONCE",
+    "write /workspace/results.json with BOTH in-sample and sealed-holdout segments",
+    "hand off to the Risk auditor"
+  ],
+  "required": {
+    "splits": ["train", "validation", "holdout"],
+    "holdout_sealed_during_design": true,
+    "evaluation": "walk-forward",
+    "outputs": {
+      "results.json": ["in_sample", "holdout"],
+      "metrics_per_segment": ["sharpe", "max_drawdown", "equity_curve"]
+    }
+  },
+  "forbidden": [
+    "natural language in code (the body must be valid Python)",
+    "import os | import sys | import subprocess | import requests (no arbitrary IO/network)",
+    "eval / exec",
+    "reading validation or holdout data during feature construction",
+    "hand-joined future-timestamped data (use QC PIT data only)",
+    "overwriting QC indicator method names (use self._rsi = self.rsi(...), not self.rsi = ...)",
+    "calling create_optimization without an approved, ledgered request (always_ask gated)"
+  ],
+  "qc_idioms": {
+    "style": "PEP8 snake_case (or run update_code_to_pep8)",
+    "compile_before_backtest": true,
+    "create_project_not_local_files": true
+  },
+  "rubric_ref": "see strategy_authoring_contract.md (rubric) and docs/07-iteration-rubric.md"
+}

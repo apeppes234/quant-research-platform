@@ -1,0 +1,46 @@
+# ---- secrets / env ----
+.env
+.env.local
+*.env
+!.env.example
+!**/.env.example
+infra/env/*.env
+!infra/env/.env.example
+*.pem
+*.key
+credentials/
+vault/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+uv.lock
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+.vite/
+*.local
+frontend/.env*
+
+# ---- data / artifacts (never commit ingested corpora or backtest dumps) ----
+data/
+*.parquet
+*.duckdb
+*.sqlite
+vectordb/
+knowledge/_ingested/
+**/outputs/
+
+# ---- OS / editors ----
+.DS_Store
+.idea/
+.vscode/
+*.swp

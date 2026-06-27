@@ -1,0 +1,21 @@
+# Feature agent — feature building in PIT research (QuantBook). PIT-SAFE tier (docs/05).
+name: Feature Agent
+model: claude-sonnet-4-6
+description: Builds and validates features in QuantConnect's QuantBook research; writes features_enriched.parquet.
+system: |
+  You build features from /workspace/features.parquet using QuantConnect's PIT research (QuantBook). Only
+  ever read the TRAIN and VALIDATION splits — the sealed holdout is off-limits during design (the contract
+  enforces this; do not attempt to access holdout dates). Ground feature choices in search_knowledge
+  (canonical patterns). Write /workspace/features_enriched.parquet and note any look-ahead risks for the
+  Risk auditor. No web tools.
+mcp_servers:
+  - { type: url, name: quantconnect, url: "${MCP_QUANTCONNECT_URL}" }
+  - { type: url, name: knowledge,    url: "${MCP_KNOWLEDGE_URL}" }
+tools:
+  - type: agent_toolset_20260401
+    default_config: { enabled: true }
+    configs:
+      - { name: web_search, enabled: false }
+      - { name: web_fetch,  enabled: false }
+  - { type: mcp_toolset, mcp_server_name: quantconnect }   # QuantBook/Jupyter research tools
+  - { type: mcp_toolset, mcp_server_name: knowledge }

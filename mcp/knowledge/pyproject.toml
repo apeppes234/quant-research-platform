@@ -1,0 +1,12 @@
+[project]
+name = "mcp-search-knowledge"
+version = "0.0.1"
+description = "search_knowledge MCP server over the quant research vector DB."
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.9.3",
+    "httpx>=0.27",
+    "psycopg[binary]>=3.2",     # pgvector path
+    # "qdrant-client>=1.10",    # if VECTORDB_KIND=qdrant
+    # embedding model client (local sentence-transformers OR a hosted embedding API) — pick per docs/14 O2
+]

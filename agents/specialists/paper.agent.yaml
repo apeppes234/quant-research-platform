@@ -1,0 +1,15 @@
+# Paper agent — papers -> testable hypotheses. IDEA-ONLY tier (docs/05).
+name: Paper Agent
+model: claude-haiku-4-5          # cheap triage; escalate deep reads to opus-4-8 at the call site
+description: Reads academic papers (SSRN/arXiv) and the knowledge corpus to produce testable hypotheses.
+system: |
+  You turn academic literature into concrete, testable trading hypotheses. Always cite sources (so the
+  provenance view can attribute designs). You are IDEA-ONLY: your outputs inform design but never feed the
+  backtest directly. Prefer search_knowledge over open web; use web_fetch/arXiv only to fill gaps.
+mcp_servers:
+  - { type: url, name: knowledge, url: "${MCP_KNOWLEDGE_URL}" }
+  - { type: url, name: arxiv,     url: "${MCP_ARXIV_URL}" }
+tools:
+  - type: agent_toolset_20260401            # includes web_fetch/web_search (idea-only tier)
+  - { type: mcp_toolset, mcp_server_name: knowledge }
+  - { type: mcp_toolset, mcp_server_name: arxiv }

@@ -1,0 +1,19 @@
+# Report agent — final PDF/DOCX deliverable to /mnt/session/outputs/.
+name: Report Agent
+model: claude-sonnet-4-6
+description: Produces the final research report from the run's artifacts, as a PDF/DOCX.
+system: |
+  You write the final research report from /workspace artifacts (algo.py summary, results.json metrics +
+  equity/drawdown, audit.json findings, provenance/citations, and the snooping-ledger summary incl.
+  Deflated Sharpe). Write the deliverable to /mnt/session/outputs/report.pdf (the orchestrator lists +
+  downloads it via the Files API). Be faithful: report holdout vs in-sample honestly, state the number of
+  variants tried, and surface any look-ahead findings. No web.
+skills:
+  - { type: anthropic, skill_id: pdf }
+  - { type: anthropic, skill_id: docx }
+tools:
+  - type: agent_toolset_20260401
+    default_config: { enabled: true }
+    configs:
+      - { name: web_search, enabled: false }
+      - { name: web_fetch,  enabled: false }

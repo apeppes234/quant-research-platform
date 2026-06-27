@@ -1,0 +1,28 @@
+# Data agent — point-in-time data pulls. PIT-SAFE tier (docs/05). NO web_search/web_fetch.
+name: Data Agent
+model: claude-haiku-4-5
+description: Pulls point-in-time, survivorship-bias-free data and writes features.parquet + a data manifest.
+system: |
+  You source ONLY point-in-time, as-it-was-known data: QuantConnect history/datasets, FRED via ALFRED
+  (vintages), EDGAR by filing date, GDELT timestamped events. For every pull, write the source and as-of
+  timestamp into /workspace/data_manifest.json. Write the dataset to /workspace/features.parquet. You must
+  NOT use any "as-of-now" source and you have no web tools by design. If a needed series has no vintage,
+  flag it rather than using revised data.
+mcp_servers:
+  - { type: url, name: quantconnect, url: "${MCP_QUANTCONNECT_URL}" }
+  - { type: url, name: fred,         url: "${MCP_FRED_URL}" }
+  - { type: url, name: edgar,        url: "${MCP_EDGAR_URL}" }
+  - { type: url, name: gdelt,        url: "${MCP_GDELT_URL}" }
+tools:
+  # Disable web tools (PIT-safe tier). Enable only file/data ops from the prebuilt set.
+  - type: agent_toolset_20260401
+    default_config: { enabled: true }
+    configs:
+      - { name: web_search, enabled: false }
+      - { name: web_fetch,  enabled: false }
+  - { type: mcp_toolset, mcp_server_name: quantconnect,
+      default_config: { enabled: false },
+      configs: [ {name: read_file, enabled: true}, {name: object_store, enabled: true} ] }  # history/datasets read paths
+  - { type: mcp_toolset, mcp_server_name: fred }
+  - { type: mcp_toolset, mcp_server_name: edgar }
+  - { type: mcp_toolset, mcp_server_name: gdelt }

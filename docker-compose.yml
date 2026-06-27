@@ -1,0 +1,82 @@
+# ============================================================================
+# Quant Research Platform — local services (DATA PLANE + TOOLS)
+# This composes ONLY the parts you self-host. The agent loop, containers, and
+# event stream run on Anthropic's infrastructure (Managed Agents) and are NOT
+# in this file. See docs/01-architecture.md "What runs where".
+#
+# STATUS: scaffold. Each service points at a component that is not yet built.
+# Fill in Dockerfiles/commands as you implement (docs/13-build-phases.md).
+# ============================================================================
+# NOTE: hosted Managed Agents can only reach MCP servers at PUBLIC HTTPS URLs.
+# For local dev, expose the MCP services through a tunnel (e.g. cloudflared/ngrok)
+# and put the public URL in .env (MCP_*_URL). See docs/12-credentials-networking.md.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quant_research}
+      POSTGRES_USER: ${POSTGRES_USER:-quant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  # Vector DB for search_knowledge. Default pgvector lives in `postgres` above;
+  # uncomment qdrant if VECTORDB_KIND=qdrant.
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   ports: ["6333:6333"]
+  #   volumes: ["qdrant_data:/qdrant/storage"]
+
+  orchestrator:
+    build: ./orchestrator
+    env_file: [.env]
+    ports: ["${ORCHESTRATOR_PORT:-8000}:8000"]
+    depends_on: [postgres]
+    # command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  frontend:
+    build: ./frontend
+    ports: ["${FRONTEND_PORT:-5173}:5173"]
+    depends_on: [orchestrator]
+    # command: npm run dev -- --host
+
+  mcp-knowledge:
+    build: ./mcp/knowledge
+    env_file: [.env]
+    environment:
+      MCP_TRANSPORT: streamable-http
+    ports: ["9001:9000"]
+    depends_on: [postgres]
+
+  # Self-hosted QuantConnect MCP = QC's OFFICIAL image in streamable-http mode,
+  # behind an auth proxy (QC's MCP exposes no inbound auth of its own). See
+  # mcp/quantconnect/README.md and docs/04-quantconnect.md.
+  mcp-quantconnect:
+    image: quantconnect/mcp-server
+    environment:
+      MCP_TRANSPORT: streamable-http
+      QUANTCONNECT_USER_ID: ${QUANTCONNECT_USER_ID}
+      QUANTCONNECT_API_TOKEN: ${QUANTCONNECT_API_TOKEN}
+    expose: ["8000"]          # NOT published directly — only the proxy is exposed
+
+  mcp-quantconnect-proxy:
+    image: nginx:alpine
+    volumes:
+      - ./mcp/quantconnect/proxy/nginx.conf.example:/etc/nginx/conf.d/default.conf:ro
+    environment:
+      QC_MCP_INBOUND_BEARER: ${QC_MCP_INBOUND_BEARER}
+    ports: ["9002:443"]
+    depends_on: [mcp-quantconnect]
+
+  # FRED / EDGAR / GDELT / arXiv MCP wrappers — add as you build them (Phase 4/5).
+  # mcp-fred:   { build: ./mcp/data-sources/fred,  env_file: [.env], ports: ["9003:9000"] }
+  # mcp-edgar:  { build: ./mcp/data-sources/edgar, env_file: [.env], ports: ["9004:9000"] }
+  # mcp-gdelt:  { build: ./mcp/data-sources/gdelt, env_file: [.env], ports: ["9005:9000"] }
+  # mcp-arxiv:  { build: ./mcp/data-sources/arxiv, env_file: [.env], ports: ["9006:9000"] }
+
+volumes:
+  pgdata:
+  # qdrant_data:
