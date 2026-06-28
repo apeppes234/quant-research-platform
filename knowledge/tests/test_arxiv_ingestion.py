@@ -1,60 +1,84 @@
-"""Tests for the arXiv ingestion job (mocked Atom feed; no network)."""
+"""Tests for the arXiv ingestion job (uses the `arxiv` package; no network)."""
 
 from __future__ import annotations
 
+import datetime
+
+import arxiv as arxiv_api
+
 from ingestion import arxiv
 
-# A trimmed but realistic arXiv Atom response with two entries (one malformed-ish).
-SAMPLE_ATOM = """<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
-  <entry>
-    <id>http://arxiv.org/abs/2401.01234v1</id>
-    <title>Time Series Momentum in Commodity Futures</title>
-    <summary>We study time series momentum and trend following across commodity futures and find
-    persistent volatility-scaled returns.</summary>
-    <published>2024-01-03T10:00:00Z</published>
-    <updated>2024-01-05T10:00:00Z</updated>
-    <author><name>Jane Q. Researcher</name></author>
-    <author><name>John Coauthor</name></author>
-    <category term="q-fin.PM"/>
-    <category term="q-fin.TR"/>
-    <link href="http://arxiv.org/abs/2401.01234v1" rel="alternate" type="text/html"/>
-    <link title="pdf" href="http://arxiv.org/pdf/2401.01234v1" rel="related" type="application/pdf"/>
-  </entry>
-  <entry>
-    <id>http://arxiv.org/abs/2401.05678v2</id>
-    <title>Deep Learning for Options Pricing</title>
-    <summary>A neural network approach to option pricing and implied volatility surfaces.</summary>
-    <published>2024-01-10T10:00:00Z</published>
-    <author><name>Solo Author</name></author>
-    <category term="q-fin.CP"/>
-  </entry>
-</feed>"""
+
+def _result(
+    *,
+    entry_id: str,
+    title: str,
+    summary: str,
+    authors: list[str],
+    categories: list[str],
+    pdf_url: str | None = None,
+    published: datetime.datetime | None = None,
+    updated: datetime.datetime | None = None,
+) -> arxiv_api.Result:
+    return arxiv_api.Result(
+        entry_id=entry_id,
+        title=title,
+        summary=summary,
+        authors=[arxiv_api.Result.Author(name) for name in authors],
+        categories=categories,
+        published=published or datetime.datetime(2024, 1, 3, 10, 0, 0),
+        updated=updated or datetime.datetime(2024, 1, 5, 10, 0, 0),
+    )
 
 
-def _papers():
-    import xml.etree.ElementTree as ET
+def _momentum_result() -> arxiv_api.Result:
+    return _result(
+        entry_id="http://arxiv.org/abs/2401.01234v1",
+        title="Time Series Momentum in Commodity Futures",
+        summary="We study time series momentum and trend following across commodity futures.",
+        authors=["Jane Q. Researcher", "John Coauthor"],
+        categories=["q-fin.PM", "q-fin.TR"],
+    )
 
-    root = ET.fromstring(SAMPLE_ATOM)
-    return [arxiv._parse_entry(e) for e in root.findall(f"{arxiv.ATOM}entry")]
+
+def _options_result() -> arxiv_api.Result:
+    return _result(
+        entry_id="http://arxiv.org/abs/2401.05678v2",
+        title="Deep Learning for Options Pricing",
+        summary="A neural network approach to option pricing and implied volatility surfaces.",
+        authors=["Solo Author"],
+        categories=["q-fin.CP"],
+    )
 
 
-def test_parse_entry_extracts_fields():
-    papers = _papers()
-    p0 = papers[0]
+# Plain dict rows (the shape build_chunks consumes) — no package needed.
+def _papers() -> list[dict]:
+    return [arxiv._result_to_dict(_momentum_result()), arxiv._result_to_dict(_options_result())]
+
+
+def test_result_to_dict_extracts_fields():
+    p0 = arxiv._result_to_dict(_momentum_result())
     assert p0["title"] == "Time Series Momentum in Commodity Futures"
     assert p0["authors"] == ["Jane Q. Researcher", "John Coauthor"]
     assert p0["arxiv_id"] == "2401.01234v1"
     assert p0["categories"] == ["q-fin.PM", "q-fin.TR"]
-    assert p0["pdf_url"] == "http://arxiv.org/pdf/2401.01234v1"
     assert p0["source_url"] == "http://arxiv.org/abs/2401.01234v1"
-    assert p0["updated"] == "2024-01-05T10:00:00Z"
+    assert str(p0["published"]).startswith("2024-01-03")
+    assert str(p0["updated"]).startswith("2024-01-05")
 
 
 def test_pdf_url_synthesized_when_missing():
-    # second entry has no pdf link; build a canonical one from the id
-    p1 = _papers()[1]
+    # arxiv.Result computes pdf_url from links; with none provided it falls back to None,
+    # so _result_to_dict synthesizes the canonical pdf URL from the short id.
+    p1 = arxiv._result_to_dict(_options_result())
     assert p1["pdf_url"] == "https://arxiv.org/pdf/2401.05678v2"
+
+
+def test_fetch_maps_client_results(monkeypatch):
+    results = [_momentum_result(), _options_result()]
+    monkeypatch.setattr(arxiv_api.Client, "results", lambda self, search: iter(results))
+    papers = arxiv.fetch(query="cat:q-fin.*", limit=5)
+    assert [p["arxiv_id"] for p in papers] == ["2401.01234v1", "2401.05678v2"]
 
 
 def test_build_chunks_corpus_and_provider():
@@ -79,7 +103,7 @@ def test_metadata_preserved():
     chunk = arxiv.build_chunks(_papers())[0]
     meta = chunk.metadata
     assert meta["arxiv_id"] == "2401.01234v1"
-    assert meta["pdf_url"] == "http://arxiv.org/pdf/2401.01234v1"
+    assert meta["pdf_url"] == "https://arxiv.org/pdf/2401.01234v1"
     assert meta["source_url"] == "http://arxiv.org/abs/2401.01234v1"
     assert meta["categories"] == ["q-fin.PM", "q-fin.TR"]
     assert meta["source_type"] == "paper"
@@ -95,10 +119,8 @@ def test_citation_handles_single_and_multi_author():
 
 
 def test_collect_chunks_returns_empty_on_network_error(monkeypatch):
-    import urllib.error
-
     def boom(*a, **k):
-        raise urllib.error.URLError("no network")
+        raise OSError("no network")
 
     monkeypatch.setattr(arxiv, "fetch", boom)
     assert arxiv.collect_chunks(limit=5) == []

@@ -1,23 +1,18 @@
-"""Ingest arXiv q-fin preprints -> corpus 'papers' (keyless API). docs/06.
+"""Ingest arXiv q-fin preprints -> corpus 'papers' via the official `arxiv` PyPI client. docs/06.
 
-arXiv is the **automated** academic feed (contrast SSRN, which is curated/manual). It hits arXiv's
-public Atom API, so it needs no key. Results are research grounding/citations for the Paper Agent — not
-a price/return source; every hypothesis is validated later by a QuantConnect backtest.
+arXiv is the **automated** academic feed (contrast SSRN, which is curated/manual). The `arxiv` package
+wraps arXiv's public, keyless API (paging, retries, rate-limit delay), so this module just maps its
+``arxiv.Result`` objects into our ``KnowledgeChunk`` shape. Results are research grounding/citations for
+the Paper Agent — not a price/return source; every hypothesis is validated later by a QC backtest.
 """
 
 from __future__ import annotations
 
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
+
+import arxiv as arxiv_api
 
 from .common import KnowledgeChunk, chunk_text, infer_tags
-
-ARXIV_API = "https://export.arxiv.org/api/query"
-ATOM = "{http://www.w3.org/2005/Atom}"
-ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 # Canonical topic tag -> substrings that imply it (matched against title + abstract).
 TOPIC_VOCAB: dict[str, tuple[str, ...]] = {
@@ -37,22 +32,16 @@ TOPIC_VOCAB: dict[str, tuple[str, ...]] = {
 
 
 def fetch(query: str = "cat:q-fin.*", *, limit: int = 50) -> list[dict[str, object]]:
-    params = urllib.parse.urlencode(
-        {
-            "search_query": query,
-            "start": 0,
-            "max_results": max(1, min(limit, 100)),
-            "sortBy": "submittedDate",
-            "sortOrder": "descending",
-        }
+    search = arxiv_api.Search(
+        query=query,
+        max_results=max(1, min(limit, 100)),
+        sort_by=arxiv_api.SortCriterion.SubmittedDate,
+        sort_order=arxiv_api.SortOrder.Descending,
     )
-    with urllib.request.urlopen(f"{ARXIV_API}?{params}", timeout=45) as response:
-        root = ET.fromstring(response.read())
-
     papers: list[dict[str, object]] = []
-    for entry in root.findall(f"{ATOM}entry"):
+    for result in arxiv_api.Client().results(search):
         try:
-            papers.append(_parse_entry(entry))
+            papers.append(_result_to_dict(result))
         except Exception as exc:  # one malformed entry must not kill the batch
             _warn(f"skipping malformed entry ({exc})")
     return papers
@@ -69,11 +58,11 @@ def build_chunks(papers: list[dict[str, object]]) -> list[KnowledgeChunk]:
 
 
 def collect_chunks(*, query: str = "cat:q-fin.*", limit: int | None = None) -> list[KnowledgeChunk]:
-    """Fetch + chunk, degrading to an empty list (with a warning) on network failure."""
+    """Fetch + chunk, degrading to an empty list (with a warning) on network/API failure."""
 
     try:
         papers = fetch(query=query, limit=limit or 50)
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+    except (arxiv_api.ArxivError, OSError, TimeoutError) as exc:
         _warn(f"arXiv API unreachable ({exc}); skipping this job")
         return []
     return build_chunks(papers)
@@ -84,6 +73,22 @@ def ingest(*, query: str = "cat:q-fin.*", limit: int = 50, upsert: bool = True) 
 
     chunks = collect_chunks(query=query, limit=limit)
     return upsert_chunks(chunks) if upsert else len(chunks)
+
+
+def _result_to_dict(result: arxiv_api.Result) -> dict[str, object]:
+    arxiv_id = result.get_short_id()
+    pdf_url = result.pdf_url or (f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else "")
+    return {
+        "title": " ".join((result.title or "").split()),
+        "abstract": " ".join((result.summary or "").split()),
+        "authors": [author.name for author in result.authors],
+        "published": result.published.isoformat() if result.published else "",
+        "updated": result.updated.isoformat() if result.updated else "",
+        "arxiv_id": arxiv_id,
+        "categories": list(result.categories or []),
+        "source_url": result.entry_id or "",
+        "pdf_url": pdf_url,
+    }
 
 
 def _chunks_for_paper(paper: dict[str, object]) -> list[KnowledgeChunk]:
@@ -117,41 +122,6 @@ def _chunks_for_paper(paper: dict[str, object]) -> list[KnowledgeChunk]:
     )
 
 
-def _parse_entry(entry: ET.Element) -> dict[str, object]:
-    title = " ".join(_text(entry, "title").split())
-    abstract = " ".join(_text(entry, "summary").split())
-    abs_url = _text(entry, "id")
-    arxiv_id = abs_url.rsplit("/abs/", 1)[-1] if "/abs/" in abs_url else abs_url
-
-    authors = [
-        name.text.strip()
-        for author in entry.findall(f"{ATOM}author")
-        if (name := author.find(f"{ATOM}name")) is not None and name.text
-    ]
-    categories = [
-        cat.attrib["term"] for cat in entry.findall(f"{ATOM}category") if cat.attrib.get("term")
-    ]
-
-    pdf_url = ""
-    for link in entry.findall(f"{ATOM}link"):
-        if link.attrib.get("title") == "pdf" or link.attrib.get("type") == "application/pdf":
-            pdf_url = link.attrib.get("href", "")
-    if not pdf_url and arxiv_id:
-        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
-
-    return {
-        "title": title,
-        "abstract": abstract,
-        "authors": authors,
-        "published": _text(entry, "published"),
-        "updated": _text(entry, "updated"),
-        "arxiv_id": arxiv_id,
-        "categories": categories,
-        "source_url": abs_url,
-        "pdf_url": pdf_url,
-    }
-
-
 def _citation(authors: list[str], year: str, title: str, arxiv_id: str) -> str:
     if authors:
         who = authors[0] if len(authors) == 1 else f"{authors[0]} et al."
@@ -160,11 +130,6 @@ def _citation(authors: list[str], year: str, title: str, arxiv_id: str) -> str:
     bits = [f"{who} ({year})" if year else who, title.rstrip(".")]
     tail = f"arXiv:{arxiv_id}" if arxiv_id else "arXiv"
     return ". ".join([*bits, tail])
-
-
-def _text(entry: ET.Element, name: str) -> str:
-    child = entry.find(f"{ATOM}{name}")
-    return child.text.strip() if child is not None and child.text else ""
 
 
 def _warn(message: str) -> None:
