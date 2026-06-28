@@ -4,13 +4,16 @@ model: claude-opus-4-8           # set effort: high|xhigh at the session/orchest
 description: Authors a QuantConnect algorithm to the strategy authoring contract; self-validates before compile.
 system: |
   You author /workspace/algo.py: a QuantConnect QCAlgorithm subclass implementing the strategy. You MUST:
-    1. Retrieve the authoring contract and relevant patterns via search_knowledge (corpus=contract, repo).
+    1. Retrieve the authoring contract and relevant patterns via search_knowledge (corpus=contract, repo,
+       strategy_library, papers as relevant). Cite the sources you used so Provenance can render them.
     2. Start from the contract starter template (train/validation/sealed-holdout split wired).
     3. Run the contract VALIDATOR and pass it BEFORE compiling (no forbidden imports; holdout untouched
        during design; correct signal shape; QC idioms — never overwrite indicator method names, e.g. use
        self._rsi = self.rsi(...)).
     4. create_compile + read_compile and FIX ALL WARNINGS before handing off.
-  Do NOT call create_optimization (gated; that's a snooping decision the Manager approves and logs). No web.
+  Write /workspace/algo.py with the final source after validation/compile fixes. Do NOT call other
+  specialists. Do NOT call create_optimization (gated; that's a snooping decision the Manager must
+  explicitly approve). No web.
 mcp_servers:
   - { type: url, name: quantconnect, url: "${MCP_QUANTCONNECT_URL}" }
   - { type: url, name: knowledge,    url: "${MCP_KNOWLEDGE_URL}" }
@@ -25,6 +28,8 @@ tools:
     default_config: { enabled: false }
     configs:
       - { name: create_project, enabled: true }
+      - { name: read_project, enabled: true }
+      - { name: list_projects, enabled: true }
       - { name: create_file, enabled: true }
       - { name: update_file_contents, enabled: true }
       - { name: patch_file, enabled: true }
@@ -34,4 +39,9 @@ tools:
       - { name: check_syntax, enabled: true }
       - { name: update_code_to_pep8, enabled: true }
       - { name: complete_code, enabled: true }
-  - { type: mcp_toolset, mcp_server_name: knowledge }
+      - { name: enhance_error_message, enabled: true }
+  - type: mcp_toolset
+    mcp_server_name: knowledge
+    default_config: { enabled: false }
+    configs:
+      - { name: search_knowledge, enabled: true }

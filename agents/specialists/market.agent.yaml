@@ -11,5 +11,9 @@ mcp_servers:
   - { type: url, name: gdelt, url: "${MCP_GDELT_URL}" }    # event context
 tools:
   - type: agent_toolset_20260401            # web_search/web_fetch = the idea-gen tools
+    default_config: { enabled: false }
+    configs:
+      - { name: web_search, enabled: true }
+      - { name: web_fetch,  enabled: true }
   - { type: mcp_toolset, mcp_server_name: fred }
   - { type: mcp_toolset, mcp_server_name: gdelt }

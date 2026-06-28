@@ -5,7 +5,7 @@
 # ============================================================================
 
 .PHONY: help agents-apply agents-diff up down logs orchestrator frontend \
-        mcp-knowledge ingest test fmt
+        mcp-knowledge mcp-quantconnect contract-validate ingest test fmt
 
 help:                ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -37,12 +37,19 @@ frontend:            ## Run the frontend dev server locally without Docker
 mcp-knowledge:       ## Run the search_knowledge MCP locally (streamable-http)
 	cd mcp/knowledge && MCP_TRANSPORT=streamable-http uv run src/server.py
 
+mcp-quantconnect:    ## Run QC's official MCP behind the bearer proxy (requires QC env + tunnel)
+	cd mcp/quantconnect && docker compose -f docker-compose.qc.yml up
+
+contract-validate:   ## Validate the starter QuantConnect algorithm contract fixture
+	python3 contract/validator/validate.py contract/templates/starter_algorithm.py
+
 # ---- Knowledge ingestion -----------------------------------------------------
 ingest:              ## Run all ingestion jobs (SSRN, arXiv, QuantResearch repo, QC Strategy Library)
 	cd knowledge && uv run python -m ingestion.run_all
 
 # ---- Quality ----------------------------------------------------------------
 test:                ## Run all tests
+	python3 contract/validator/validate.py contract/templates/starter_algorithm.py
 	cd orchestrator && uv run pytest -q || true
 	cd frontend && npm test || true
 

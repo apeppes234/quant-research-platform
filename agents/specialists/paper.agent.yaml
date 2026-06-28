@@ -10,6 +10,10 @@ mcp_servers:
   - { type: url, name: knowledge, url: "${MCP_KNOWLEDGE_URL}" }
   - { type: url, name: arxiv,     url: "${MCP_ARXIV_URL}" }
 tools:
-  - type: agent_toolset_20260401            # includes web_fetch/web_search (idea-only tier)
+  - type: agent_toolset_20260401            # web_fetch/web_search only on idea agents
+    default_config: { enabled: false }
+    configs:
+      - { name: web_search, enabled: true }
+      - { name: web_fetch,  enabled: true }
   - { type: mcp_toolset, mcp_server_name: knowledge }
   - { type: mcp_toolset, mcp_server_name: arxiv }

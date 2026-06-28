@@ -12,8 +12,8 @@ services:
   qc-proxy:
     image: nginx:alpine
     volumes:
-      - ./proxy/nginx.conf.example:/etc/nginx/conf.d/default.conf:ro
+      - ./proxy/nginx.conf.example:/etc/nginx/templates/default.conf.template:ro
     environment:
       QC_MCP_INBOUND_BEARER: ${QC_MCP_INBOUND_BEARER}
-    ports: ["9002:443"]         # publish ONLY the proxy (front this with real TLS in prod)
+    ports: ["9002:80"]          # publish ONLY the proxy; front this with a public HTTPS tunnel/TLS
     depends_on: [qc-mcp]

@@ -13,8 +13,9 @@
 5. QC `create_compile` + `read_compile` — **fix ALL compile warnings**.
 6. `create_backtest` on **train + validation only**.
 7. Evaluate the **sealed holdout EXACTLY ONCE**.
-8. Write `/workspace/results.json` with **both** in-sample and sealed-holdout segments (each with Sharpe,
-   max drawdown, equity curve).
+8. Write `/workspace/results.json` and copy the same JSON to `/mnt/session/outputs/results.json` with
+   **both** in-sample and sealed-holdout segments (each with Sharpe, max drawdown, total return, equity
+   curve, and drawdown).
 9. Hand off to the Risk auditor.
 
 ## 2. Required structure
@@ -25,6 +26,10 @@
 - Entry/exit logic lives in `on_data` (event-driven); no peeking at future bars.
 - `results.json` carries both segments so the rubric (docs/07) can compute the in-sample/holdout gap and
   the Deflated Sharpe.
+- The Phase 2 starter uses:
+  - train: `2010-01-01` through `2017-12-31`
+  - validation: `2018-01-01` through `2019-12-31`
+  - sealed holdout: `2020-01-01` through `2023-12-31`
 
 ## 3. Forbidden
 
@@ -35,13 +40,42 @@
 - Overwriting QC indicator method names — use `self._rsi = self.rsi(self._symbol, 14)`, never `self.rsi = ...`.
 - `create_optimization` without an approved, ledgered request (it's `always_ask` gated — docs/08).
 
-## 4. QuantConnect idioms (docs/04)
+## 4. Results JSON shape
+
+The browser expects this shape. The Backtest agent must write it to `/workspace/results.json` and copy it
+to `/mnt/session/outputs/results.json` for the orchestrator file bridge:
+
+```json
+{
+  "project_id": "string",
+  "backtest_id": "string",
+  "strategy": "StarterStrategy",
+  "segments": {
+    "in_sample": {
+      "start": "2010-01-01",
+      "end": "2019-12-31",
+      "metrics": { "sharpe": 0.0, "max_drawdown": 0.0, "total_return": 0.0 },
+      "equity_curve": [{ "time": "2010-01-04", "value": 100000.0 }],
+      "drawdown": [{ "time": "2010-01-04", "value": 0.0 }]
+    },
+    "holdout": {
+      "start": "2020-01-01",
+      "end": "2023-12-31",
+      "metrics": { "sharpe": 0.0, "max_drawdown": 0.0, "total_return": 0.0 },
+      "equity_curve": [{ "time": "2020-01-02", "value": 100000.0 }],
+      "drawdown": [{ "time": "2020-01-02", "value": 0.0 }]
+    }
+  }
+}
+```
+
+## 5. QuantConnect idioms (docs/04)
 
 - Create projects via `create_project` (don't write project files locally).
 - PEP8 snake_case; use `update_code_to_pep8` if needed.
 - Compile and fix warnings **before** backtesting; prefer `patch_file` for small edits.
 
-## 5. The rubric (success criteria — single source of truth, mirrored in docs/07)
+## 6. The rubric (success criteria — single source of truth, mirrored in docs/07)
 
 A candidate is **`satisfied`** only if **all five** pass:
 

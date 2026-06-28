@@ -15,6 +15,8 @@ websockets. **This is the part to get right** — it's what keeps the canvas acc
    over a websocket, with per-event `id` so the client can dedupe.
 4. **Steering** (`app/routes/steering.py`): accept interrupt/approve from the UI and translate to the
    corresponding `events.send(...)`.
+5. **Session outputs** (`app/routes/sessions.py`): list/download `/mnt/session/outputs/*` through the
+   Managed Agents Files API, including `results.json` and `report.pdf`.
 
 ## The three patterns that must be exactly right
 
@@ -93,6 +95,7 @@ orchestrator/app/
   events/ws_relay.py      # fan-out normalized events to connected browsers
   events/schema.py        # raw event -> normalized {kind,payload} map (sync w/ docs/09)
   routes/sessions.py      # POST /sessions, POST /sessions/{id}/message, /define_outcome
+                          # GET /sessions/{id}/results, /report, /files, /files/{file_id}/download
   routes/stream.py        # WS /sessions/{id}/stream
   routes/steering.py      # POST /sessions/{id}/interrupt, /confirm
 ```

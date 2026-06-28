@@ -1,18 +1,52 @@
-"""Fan-out normalized events to connected browser websockets.
+"""In-memory websocket fan-out for normalized session events."""
 
-Holds the set of connected clients per session and pushes each normalized event (from sse_consumer +
-schema.normalize) with its `id` so the frontend (frontend/src/api/ws.ts) can dedupe. The frontend may
-reconnect; on reconnect it re-subscribes and the orchestrator may replay recent buffered events — dedupe
-by id on the client.
+from __future__ import annotations
 
-STATUS: scaffold.
-"""
+import asyncio
+from collections import defaultdict, deque
+from typing import Any
+
+from fastapi import WebSocket, WebSocketDisconnect
 
 
-class WsRelay:
-    def __init__(self) -> None:
-        self._clients: dict[str, set] = {}   # session_id -> set[WebSocket]
+class SessionRelay:
+    def __init__(self, replay_limit: int = 500):
+        self._clients: dict[str, set[WebSocket]] = defaultdict(set)
+        self._history: dict[str, deque[dict[str, Any]]] = defaultdict(
+            lambda: deque(maxlen=replay_limit)
+        )
+        self._lock = asyncio.Lock()
 
-    async def subscribe(self, session_id: str, ws) -> None: ...
-    async def unsubscribe(self, session_id: str, ws) -> None: ...
-    async def publish(self, session_id: str, normalized_event: dict) -> None: ...
+    async def subscribe(self, session_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        async with self._lock:
+            self._clients[session_id].add(websocket)
+            replay = list(self._history[session_id])
+
+        try:
+            for event in replay:
+                await websocket.send_json(event)
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            async with self._lock:
+                self._clients[session_id].discard(websocket)
+
+    async def publish(self, session_id: str, event: dict[str, Any]) -> None:
+        async with self._lock:
+            self._history[session_id].append(event)
+            clients = list(self._clients[session_id])
+
+        stale: list[WebSocket] = []
+        for websocket in clients:
+            try:
+                await websocket.send_json(event)
+            except RuntimeError:
+                stale.append(websocket)
+
+        if stale:
+            async with self._lock:
+                for websocket in stale:
+                    self._clients[session_id].discard(websocket)

@@ -1,43 +1,138 @@
-"""Consume the Managed Agents SSE event stream for one session.
+"""Managed Agents SSE consumer.
 
-THE RELIABILITY-CRITICAL FILE. Implements the three patterns from docs/10-orchestrator.md:
-
-  1. Stream-first, then send  — open the stream BEFORE sending the kickoff event, or early events arrive
-     buffered as one batch and you lose real-time reactions.
-
-  2. Reconnect-with-consolidation — SSE has NO replay. On every (re)connect: open the stream, fetch
-     events.list() history, yield history first then live, deduping by event.id. The dedupe gates only
-     the handler — terminal checks must still run for already-seen events.
-
-  3. Idle-break gate — idle != done. Break on session.status_terminated, or session.status_idle with
-     stop_reason.type != "requires_action". `requires_action` means the agent is waiting on YOU
-     (tool_confirmation / custom_tool_result) — handle it, don't break.
-
-Each consumed raw event is normalized via events/schema.py and handed to ws_relay for fan-out.
-
-STATUS: scaffold — signature + skeleton only.
+Implements the Phase 1 load-bearing patterns from docs/10:
+stream-first, reconnect-with-consolidation, and the idle-break gate.
 """
-from typing import AsyncIterator
+
+from __future__ import annotations
+
+import asyncio
+import time
+from collections.abc import Iterable
+from contextlib import nullcontext
+from typing import Any
+
+from .schema import event_id, is_terminal_event, normalize_event
+from .ws_relay import SessionRelay
 
 
-async def consume(client, session_id: str) -> AsyncIterator[dict]:
-    """Yield NORMALIZED events ({kind, payload}) for `session_id` until the session is done.
+class ManagedAgentsEventConsumer:
+    def __init__(self, sdk_client: Any, relay: SessionRelay):
+        self._client = sdk_client
+        self._relay = relay
 
-    Pseudocode (fill in with the real beta SDK calls — docs/02):
+    async def consume_session(
+        self,
+        session_id: str,
+        *,
+        opened: asyncio.Event | None = None,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        await asyncio.to_thread(self._consume_sync, session_id, loop, opened)
 
-        seen = set()
-        stream = client.beta.sessions.events.stream(session_id=session_id)   # open FIRST
-        for ev in client.beta.sessions.events.list(session_id=session_id).data:   # history
-            seen.add(ev.id)
-            yield normalize(ev)
-        for ev in stream:                                                    # live tail
-            if ev.id not in seen:
-                seen.add(ev.id)
-                yield normalize(ev)
-            if ev.type == "session.status_terminated":
-                break
-            if ev.type == "session.status_idle" and ev.stop_reason.type != "requires_action":
-                break
-            # if requires_action: surface it so the caller can send tool_confirmation/custom_tool_result
-    """
-    raise NotImplementedError("scaffold — see docstring + docs/10")
+    def _consume_sync(
+        self,
+        session_id: str,
+        loop: asyncio.AbstractEventLoop,
+        opened: asyncio.Event | None,
+    ) -> None:
+        seen: set[str] = set()
+        backoff_seconds = 1.0
+
+        while True:
+            try:
+                terminal = self._consume_once(session_id, seen, loop, opened)
+                if terminal:
+                    return
+                backoff_seconds = 1.0
+            except Exception as exc:  # pragma: no cover - network/API failure path
+                self._publish(
+                    session_id,
+                    {
+                        "id": f"orchestrator.error:{time.time_ns()}",
+                        "type": "orchestrator.error",
+                        "kind": "relay.error",
+                        "processedAt": None,
+                        "payload": {"message": str(exc)},
+                    },
+                    loop,
+                )
+                time.sleep(backoff_seconds)
+                backoff_seconds = min(backoff_seconds * 2, 30.0)
+
+    def _consume_once(
+        self,
+        session_id: str,
+        seen: set[str],
+        loop: asyncio.AbstractEventLoop,
+        opened: asyncio.Event | None,
+    ) -> bool:
+        if self._client.raw is None:
+            raise RuntimeError("Anthropic SDK client is not configured")
+        events_api = self._client.raw.beta.sessions.events
+
+        stream_obj = events_api.stream(session_id=session_id)
+        stream_context = stream_obj if hasattr(stream_obj, "__enter__") else nullcontext(stream_obj)
+
+        with stream_context as stream:
+            if opened is not None and not opened.is_set():
+                loop.call_soon_threadsafe(opened.set)
+
+            if self._handle_history(events_api, session_id, seen, loop):
+                return True
+
+            for raw_event in stream:
+                self._handle_event(session_id, raw_event, seen, loop)
+                if is_terminal_event(raw_event):
+                    return True
+
+        return False
+
+    def _handle_history(
+        self,
+        events_api: Any,
+        session_id: str,
+        seen: set[str],
+        loop: asyncio.AbstractEventLoop,
+    ) -> bool:
+        response = events_api.list(session_id=session_id)
+        for raw_event in _iter_page_data(response):
+            self._handle_event(session_id, raw_event, seen, loop)
+            if is_terminal_event(raw_event):
+                return True
+        return False
+
+    def _handle_event(
+        self,
+        session_id: str,
+        raw_event: Any,
+        seen: set[str],
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        raw_id = event_id(raw_event)
+        if raw_id is not None:
+            if raw_id in seen:
+                return
+            seen.add(raw_id)
+
+        normalized = normalize_event(raw_event)
+        if normalized is not None:
+            self._publish(session_id, normalized, loop)
+
+    def _publish(
+        self,
+        session_id: str,
+        event: dict[str, Any],
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        future = asyncio.run_coroutine_threadsafe(self._relay.publish(session_id, event), loop)
+        future.result(timeout=10)
+
+
+def _iter_page_data(response: Any) -> Iterable[Any]:
+    data = getattr(response, "data", None)
+    if data is None and isinstance(response, dict):
+        data = response.get("data")
+    if data is None:
+        return []
+    return data

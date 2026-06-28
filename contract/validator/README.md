@@ -8,6 +8,7 @@ touches it fails here.
 
 ```bash
 python validate.py /workspace/algo.py        # exits with findings; OK if none
+python validate.py ../templates/starter_algorithm.py
 ```
 
 Or import: `from validator.validate import validate; validate(source, sealed_holdout={...})`.

@@ -1,25 +1,22 @@
-# Example reverse proxy that enforces an inbound bearer in front of the QC MCP (which has none of its own).
-# Copy/adapt; terminate real TLS in production (this example listens 443 but you must mount certs or front
-# it with a TLS terminator / tunnel). See docs/12.
+# Example reverse proxy that enforces an inbound bearer in front of the QC MCP, which has none of its own.
+# This file is rendered with envsubst by the nginx Docker entrypoint when mounted as
+# /etc/nginx/templates/default.conf.template. Terminate TLS at a tunnel or load balancer in dev/prod, then
+# proxy to this container over HTTP. See docs/12.
 #
 # The hosted agent presents `Authorization: Bearer <QC_MCP_INBOUND_BEARER>` (injected from the Anthropic
 # vault, matched by URL). We check it and proxy to the internal QC MCP container.
 
 map $http_authorization $qc_authorized {
-    default                                   0;
-    "Bearer ${QC_MCP_INBOUND_BEARER}"         1;   # NOTE: nginx doesn't expand env in conf by default;
-                                                   # render this with envsubst at container start, or use
-                                                   # a tiny auth sidecar. Shown literally for clarity.
+    default                           0;
+    "Bearer ${QC_MCP_INBOUND_BEARER}" 1;
 }
 
 server {
-    listen 443 ssl;
-    # ssl_certificate     /etc/nginx/certs/fullchain.pem;
-    # ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    listen 80;
 
     location /mcp {
         if ($qc_authorized = 0) { return 401; }
-        proxy_pass http://qc-mcp:8000;          # the streamable-http endpoint of QC's MCP
+        proxy_pass http://qc-mcp:8000;           # standalone compose service name
         proxy_http_version 1.1;
         proxy_set_header Connection "";          # keep-alive for SSE/streamable-http
         proxy_buffering off;                     # don't buffer the event stream

@@ -29,9 +29,8 @@ search_knowledge(query, filters?, k?) -> [{text, source, citation, score, metada
 source → fetch → chunk → embed → upsert(vectorDB, {text, source, citation, corpus, tags})
 ```
 
-- **Embeddings:** pick one and keep it stable (re-embedding a corpus on a model change is expensive). A
-  local model (e.g. `bge`/`e5`) keeps everything self-hosted; a hosted embedding API is fine too — record
-  the choice in docs/14 when made.
+- **Embeddings:** frozen to `intfloat/e5-small-v2` (384d; docs/14 D11). A deterministic hash embedder is
+  available only for offline tests/dry-runs; production corpora should use the frozen local model.
 - **Chunking:** semantic/section-aware for papers (keep equations + the surrounding paragraph together);
   cell-level for notebooks (so a retrieved chunk is a runnable pattern).
 - **Schema:** see [`knowledge/schema/vectordb_schema.sql`](../knowledge/schema/vectordb_schema.sql)
