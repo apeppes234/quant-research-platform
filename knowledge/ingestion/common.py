@@ -30,8 +30,21 @@ class KnowledgeChunk:
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
 
+    @property
+    def content_hash(self) -> str:
+        """Stable dedup key over provider + source + citation + chunk text.
+
+        `provider` is read from metadata (e.g. "ssrn"/"arxiv") and falls back to the corpus so
+        every chunk gets a deterministic hash. Re-running an ingestion job produces identical
+        hashes, which the upsert path uses to skip duplicates idempotently.
+        """
+
+        provider = str(self.metadata.get("provider", self.corpus))
+        basis = " ".join([provider, self.source, self.citation, self.text])
+        return hashlib.blake2b(basis.encode("utf-8"), digest_size=16).hexdigest()
+
     def to_json(self) -> dict[str, object]:
-        return asdict(self)
+        return {**asdict(self), "content_hash": self.content_hash}
 
 
 def default_pg_dsn() -> str:
@@ -152,15 +165,17 @@ def upsert_chunks(chunks: Iterable[KnowledgeChunk], *, dsn: str | None = None) -
     if not rows:
         return 0
 
+    inserted = 0
     with psycopg.connect(dsn or default_pg_dsn()) as conn:
         with conn.cursor() as cur:
             for chunk in rows:
                 cur.execute(
                     """
                     INSERT INTO knowledge_chunks
-                        (corpus, source, citation, tags, chunk_text, embedding, metadata)
+                        (corpus, source, citation, tags, chunk_text, embedding, metadata, content_hash)
                     VALUES
-                        (%s, %s, %s, %s, %s, %s::vector, %s)
+                        (%s, %s, %s, %s, %s, %s::vector, %s, %s)
+                    ON CONFLICT (content_hash) DO NOTHING
                     """,
                     (
                         chunk.corpus,
@@ -176,10 +191,30 @@ def upsert_chunks(chunks: Iterable[KnowledgeChunk], *, dsn: str | None = None) -
                                 "embedding_dim": EMBEDDING_DIM,
                             }
                         ),
+                        chunk.content_hash,
                     ),
                 )
+                inserted += cur.rowcount
         conn.commit()
-    return len(rows)
+    return inserted
+
+
+def dedupe_chunks(chunks: Iterable[KnowledgeChunk]) -> list[KnowledgeChunk]:
+    """Drop chunks that share a content_hash, preserving first-seen order.
+
+    The DB upsert is already idempotent via the unique index, but de-duplicating in memory keeps
+    JSONL snapshots clean and avoids redundant embedding work on repeated runs.
+    """
+
+    seen: set[str] = set()
+    unique: list[KnowledgeChunk] = []
+    for chunk in chunks:
+        digest = chunk.content_hash
+        if digest in seen:
+            continue
+        seen.add(digest)
+        unique.append(chunk)
+    return unique
 
 
 def write_jsonl(chunks: Iterable[KnowledgeChunk], path: Path) -> int:

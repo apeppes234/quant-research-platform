@@ -55,7 +55,15 @@ def _chunks_for_job(name: str, limit: int | None) -> list[KnowledgeChunk]:
         import os
 
         manifest = os.getenv("SSRN_PAPERS_JSONL", "")
-        return ssrn.build_chunks(ssrn.load_manifest(Path(manifest))) if manifest else []
+        if not manifest:
+            return []
+        manifest_path = Path(manifest)
+        if not manifest_path.is_file():
+            return []
+        return ssrn.build_chunks(
+            ssrn.load_manifest(manifest_path),
+            manifest_dir=manifest_path.resolve().parent,
+        )
     if name == "quantresearch_repo":
         return quantresearch_repo.build_chunks(quantresearch_repo.source_root(), limit=limit)
     if name == "strategy_library":

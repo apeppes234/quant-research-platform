@@ -14,6 +14,38 @@ data — distinct from the *running state* in Managed Agents memory stores (less
 
 Run all: `uv run python -m ingestion.run_all` (or `make ingest`).
 
+## SSRN: curated manifest, not a scraper
+
+SSRN is **research grounding** (idea/citation material for the Paper Agent), **not** market data, and is
+never scraped. The `ssrn` job ingests **only** the papers a curator explicitly lists in a local JSONL
+manifest (`SSRN_PAPERS_JSONL`). QuantConnect stays the backtest/data backbone; SSRN chunks just give the
+Paper Agent testable hypotheses with citations. See [`data/README.md`](data/README.md) for the full
+manifest field reference and [`data/ssrn_manifest.example.jsonl`](data/ssrn_manifest.example.jsonl) for
+5 ready-to-copy sample rows (momentum, pairs/stat-arb, factor, volatility, backtest-overfitting).
+
+```bash
+cd knowledge
+export SSRN_PAPERS_JSONL=data/ssrn_manifest.example.jsonl
+
+# Dry run — chunk + snapshot to JSONL, no DB writes:
+uv run python -m ingestion.run_all --jobs ssrn --dry-run --jsonl-dir out
+# Real ingest — upsert into pgvector:
+uv run python -m ingestion.run_all --jobs ssrn
+```
+
+- **Local PDFs only.** If a row sets `local_pdf_path` and has empty `text`, text is extracted from that
+  local file via `pypdf` (or `pymupdf`). PDFs are never downloaded from SSRN.
+- **Validation.** A row missing `title`, `url`/`source`, or any body (`abstract`/`text`/`local_pdf_path`)
+  is skipped with a warning; one bad row never crashes the job.
+- **Dedup / idempotency.** Each chunk has a `content_hash` (provider + source + citation + text); the
+  upsert is `ON CONFLICT (content_hash) DO NOTHING`, so re-running does not create duplicate rows.
+- **Rich metadata.** `provider="ssrn"` plus `authors, year, ssrn_id, doi, license, rights_checked,
+  strategy_family, asset_class, signal_type, data_needed, notes`. The classification fields are also
+  tags, so the Paper Agent can filter `corpus="papers"` by strategy type, asset class, and signal type.
+
+> Paper Agent contract: treat SSRN chunks as **idea/citation grounding only** — to form and cite
+> hypotheses — never as a price/return source. Validate every hypothesis with a QuantConnect backtest.
+
 ## Pipeline (docs/06)
 
 ```

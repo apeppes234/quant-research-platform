@@ -34,7 +34,22 @@ source → fetch → chunk → embed → upsert(vectorDB, {text, source, citatio
 - **Chunking:** semantic/section-aware for papers (keep equations + the surrounding paragraph together);
   cell-level for notebooks (so a retrieved chunk is a runnable pattern).
 - **Schema:** see [`knowledge/schema/vectordb_schema.sql`](../knowledge/schema/vectordb_schema.sql)
-  (pgvector) — columns: `id, corpus, source, citation, tags[], chunk_text, embedding vector(N)`.
+  (pgvector) — columns: `id, corpus, source, citation, tags[], chunk_text, embedding vector(N),
+  metadata, content_hash`. A unique index on `content_hash` (provider + source + citation + chunk text)
+  makes upserts idempotent (`ON CONFLICT DO NOTHING`), so re-running a job never duplicates rows.
+
+## SSRN — curated manifest, not a scraper
+
+SSRN is **idea/citation grounding** for the Paper Agent, **not** market data and **not** scraped.
+QuantConnect remains the backtest/data backbone. The `ssrn` job ingests only the papers a curator
+lists in a local JSONL manifest (`SSRN_PAPERS_JSONL`); see
+[`knowledge/data/README.md`](../knowledge/data/README.md). Each row carries quant metadata
+(`strategy_family`, `asset_class`, `signal_type`, `data_needed`, `authors`, `year`, `ssrn_id`, `doi`,
+`license`, `rights_checked`, `notes`) — stored in `metadata` and, for the classification fields, mirrored
+into `tags` so the Paper Agent can filter `corpus="papers"` by strategy type, asset class, and signal
+type. Optional `local_pdf_path` extracts text from a **local** PDF (`pypdf`/`pymupdf`) — never a download.
+Rows missing a title, url/source, or any body are skipped with a warning rather than crashing the job.
+The Paper Agent must use these chunks to form and cite hypotheses only, then validate via QC backtests.
 
 ## Persistent state (Managed Agents memory stores, not the vector DB)
 
