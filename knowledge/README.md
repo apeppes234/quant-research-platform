@@ -20,9 +20,10 @@ Run all: `uv run python -m ingestion.run_all` (or `make ingest`).
 source → fetch → chunk → embed → upsert(vectorDB, {text, source, citation, corpus, tags})
 ```
 
-- **Embedding model**: pick one and FREEZE it (docs/14 O2) — re-embedding a corpus is expensive.
+- **Embedding model**: frozen to `intfloat/e5-small-v2` at 384 dimensions (docs/14 D11) — re-embedding a
+  corpus is expensive. The local hash embedder is only a deterministic fallback for offline tests.
 - **Chunking**: section-aware for papers (keep equations + context together); cell-level for notebooks.
 - **Schema**: `schema/vectordb_schema.sql` (pgvector).
 - **Licensing**: confirm QC repo terms before redistributing ingested Strategy Library text (docs/14 O7).
 
-STATUS: scaffold.
+The jobs support `--dry-run` for local verification without network/database access.

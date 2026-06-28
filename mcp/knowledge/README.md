@@ -17,16 +17,16 @@ Always return a **citation** (powers the provenance view, docs/09).
 
 ```bash
 MCP_TRANSPORT=streamable-http uv run src/server.py      # or: make mcp-knowledge
+docker build -f mcp/knowledge/Dockerfile .              # from repo root; bundles contract corpus
 ```
 
-Reads `VECTORDB_KIND` + DB connection from env. The corpora are populated by the ingestion jobs in
-[`knowledge/`](../../knowledge/).
+Reads `VECTORDB_KIND` + DB connection from env. If pgvector is unavailable, it falls back to the bundled
+contract corpus and optional `KNOWLEDGE_LOCAL_JSONL_DIR` snapshots. The corpora are populated by the
+ingestion jobs in [`knowledge/`](../../knowledge/).
 
 ## Files
 
 ```
 src/server.py   # FastMCP server; registers search_knowledge; transport from MCP_TRANSPORT
-src/search.py   # embedding + vector query against pgvector/Qdrant
+src/search.py   # embedding + vector query against pgvector, with citation-bearing fallback
 ```
-
-STATUS: scaffold.

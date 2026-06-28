@@ -46,14 +46,34 @@ tool-layer enforcement of the anti-look-ahead protocol. See docs/11, docs/08.
 Structure + heavy docs now; implementation later, possibly by a different LLM without this conversation's
 context. Hence every doc is self-contained and the "verified" claims cite primary sources.
 
+### D10 — Backtest charting: Recharts v3
+Phase 2 uses Recharts v3 for equity, drawdown, and compact metric visuals in `BacktestResults.tsx`. It is
+lighter glue for mixed dashboard charts than pairing `lightweight-charts` with a separate metrics library;
+the results panel is strategy-performance oriented, not a full trading terminal.
+
+### D11 — Knowledge embeddings: `intfloat/e5-small-v2` (384d), self-hosted
+Phase 4 freezes the vector dimension at 384 and records the embedding model in chunk metadata. The local
+hash embedder exists only for deterministic offline tests/dry-runs; production ingestion should use the
+frozen local model so re-embedding is not accidental.
+
+### D12 — Data-source MCP wrappers: one shared FastMCP codebase, separate services
+FRED/ALFRED, EDGAR, GDELT, and arXiv use `mcp/data-sources/shared` with `DATASOURCE_NAME` selecting the
+tool surface. Each service is fronted by the bearer proxy pattern and attached through vaults.
+
+### D13 — Report and steering bridge: Managed Agents events + Files API
+Phase 5 keeps human-in-the-loop control on the event stream: `user.interrupt` for stop/redirect and
+`user.tool_confirmation` keyed by the triggering event id for gated tools. Final report delivery uses
+`/mnt/session/outputs/report.pdf` plus `files.list(scope_id=session.id)` / `files.download(id)`, exposed by
+the orchestrator as session output routes.
+
 ## Open (decide at implementation time; record the answer here)
 
 | ID | Question | Notes / leaning |
 |---|---|---|
 | O1 | **Vector DB**: pgvector vs Qdrant | pgvector keeps it in the existing Postgres (one fewer service); Qdrant scales better. Default pgvector. |
-| O2 | **Embedding model** | Local (`bge`/`e5`, fully self-hosted) vs hosted embedding API. Pick one and freeze it — re-embedding is costly. |
-| O3 | **Backtest charting lib** | `lightweight-charts` (TradingView) for equity/price; `Recharts` for metrics. Confirm during Phase 2. |
-| O4 | **Data-source MCP wrappers** | Build FRED/EDGAR/GDELT/arXiv as one shared FastMCP codebase (mirror QuantDinger's thin MCP-over-REST) vs separate services. Leaning: one shared lib, separate deployments. |
+| O2 | **Embedding model** | Decided in D11: `intfloat/e5-small-v2`, 384d. |
+| O3 | **Backtest charting lib** | Decided in D10: Recharts. |
+| O4 | **Data-source MCP wrappers** | Decided in D12: one shared FastMCP codebase, separate deployments. |
 | O5 | **Rubric numbers** | D6 defaults are unconfirmed against real strategies — revisit after Phase 4. |
 | O6 | **Hosting / tunnel for MCPs in dev** | cloudflared vs ngrok for exposing local MCPs at public HTTPS. See docs/12. |
 | O7 | **Tutorials/Documentation licensing** | QC repos are Apache-2.0-ish but confirm terms before redistributing ingested Strategy Library text. |

@@ -1,8 +1,8 @@
 # 03 — Agent topology
 
 **Flattened** because Managed Agents delegates one level only (docs/02). The **Research Manager** is the
-sole coordinator; the eight specialists are leaves in its roster. Pipeline order (Data → Feature →
-Modeling → Backtest → Risk → Report) is driven by the Manager's `system` instructions + the shared
+sole coordinator; the eight specialists are leaves in its roster. Pipeline order (Market/Paper → Data →
+Feature → Modeling → Backtest → Risk → Report) is driven by the Manager's `system` instructions + the shared
 container filesystem (the "file bus"), **not** by nested delegation.
 
 Each agent below maps to one YAML file in [`agents/`](../agents/). Models follow the latest-capable
@@ -17,7 +17,7 @@ default (`claude-opus-4-8`) unless a cheaper tier is clearly adequate.
 | **Feature agent** | `specialists/feature.agent.yaml` | `claude-sonnet-4-6` | QC Jupyter/QuantBook cells, `search_knowledge` | Builds features in PIT research; validates signal quality. |
 | **Modeling agent** | `specialists/modeling.agent.yaml` | `claude-opus-4-8` (high effort) | **contract + validator**, `search_knowledge`, QC `create_compile` | Authors `algo.py` to the contract; self-validates before compile. |
 | **Backtest agent** | `specialists/backtest.agent.yaml` | `claude-opus-4-8` | QC `create_backtest` / `read_backtest*` | Runs the backtest on QC; reads results/charts/orders/insights. |
-| **Risk / Bias Auditor** | `specialists/risk-auditor.agent.yaml` | `claude-opus-4-8` (fresh context) | read artifacts, bias-check, snooping **ledger** memory store | Independent look-ahead/snooping audit; writes the ledger. |
+| **Risk / Bias Auditor** | `specialists/risk-auditor.agent.yaml` | `claude-opus-4-8` (fresh context) | read artifacts, bias-check; snooping **ledger** memory store in Phase 4 | Independent look-ahead/snooping audit; writes `audit.json`. |
 | **Report agent** | `specialists/report.agent.yaml` | `claude-sonnet-4-6` | read artifacts, Skills (`pdf`/`docx`) | Produces the final report to `/mnt/session/outputs/`. |
 
 ## Why these model choices
@@ -53,11 +53,12 @@ with the roster filled in. See [`agents/scripts/apply.sh`](../agents/scripts/app
 The Research Manager's `system` prompt tells it the canonical order and the file contract:
 
 ```
+Market/Paper     → returns cited ideas / hypotheses (idea-only; never directly backtested)
 Data agent       → writes /workspace/features.parquet   (+ a data manifest with PIT timestamps)
 Feature agent    → reads features.parquet, writes /workspace/features_enriched.parquet
 Modeling agent   → reads contract, writes /workspace/algo.py  (must pass the validator)
 Backtest agent   → compiles + backtests algo.py on QC, writes /workspace/results.json
-Risk auditor     → reads algo.py + results.json + the data manifest, writes /workspace/audit.json + ledger
+Risk auditor     → reads algo.py + results.json + the data manifest, writes /workspace/audit.json
 Report agent     → reads everything, writes /mnt/session/outputs/report.pdf
 ```
 

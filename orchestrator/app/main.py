@@ -1,27 +1,43 @@
-"""FastAPI app factory for the orchestrator (data plane).
+"""FastAPI app factory for the Phase 1 orchestrator."""
 
-Mounts the session/stream/steering routes and starts the websocket relay. The actual Managed Agents
-SSE consumption happens per-session in events/sse_consumer.py.
-
-STATUS: scaffold. See docs/10-orchestrator.md for the design and the three must-be-right patterns.
-
-    uv run uvicorn app.main:app --reload --port 8000
-"""
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-# from .routes import sessions, stream, steering
+from .clients.anthropic_client import ManagedAgentsClient
+from .config import get_settings
+from .events.ws_relay import SessionRelay
+from .routes import sessions, steering, stream
+from .sessions.manager import SessionManager
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Quant Research Orchestrator")
+    settings = get_settings()
+    relay = SessionRelay()
 
-    # app.include_router(sessions.router)   # POST /sessions, /message, /define_outcome
-    # app.include_router(stream.router)     # WS  /sessions/{id}/stream
-    # app.include_router(steering.router)   # POST /interrupt, /confirm
+    app = FastAPI(title="Quant Research Orchestrator")
+    app.state.settings = settings
+    app.state.relay = relay
+    app.state.session_manager = SessionManager(
+        settings=settings,
+        client=ManagedAgentsClient(settings),
+        relay=relay,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.frontend_origin],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(sessions.router)
+    app.include_router(stream.router)
+    app.include_router(steering.router)
 
     @app.get("/health")
     def health():
-        return {"status": "scaffold"}
+        return {"status": "ok"}
 
     return app
 

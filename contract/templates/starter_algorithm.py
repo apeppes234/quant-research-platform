@@ -1,41 +1,59 @@
-# Starter QuantConnect algorithm — the Modeling agent begins here (contract workflow step 2).
-# Compiling skeleton with the train/validation/SEALED-HOLDOUT split wired and signal hooks stubbed.
-# Rules enforced by validator/validate.py + the authoring contract (docs/11). This is a TEMPLATE: it must
-# remain valid Python and pass the validator (used as a CI fixture).
-#
-# QC idioms (docs/04): subclass QCAlgorithm; set dates/cash/universe in initialize; trade in on_data;
-# NEVER overwrite indicator method names (use self._rsi = self.rsi(...), not self.rsi = ...).
+"""Starter QuantConnect algorithm for the Phase 2 backtest spine.
 
-# from AlgorithmImports import *   # provided by the QuantConnect/LEAN runtime
+The Modeling agent starts here, then the Backtest agent runs the in-sample
+segment and the sealed holdout segment exactly once. Keep this file valid
+Python: it is the validator fixture.
+"""
+
+from AlgorithmImports import *
 
 
-# --- Time splits ---------------------------------------------------------------
-# The Modeling/Feature agents may use TRAIN + VALIDATION only. HOLDOUT is sealed during design and
-# evaluated exactly once by the Backtest agent. The validator checks these dates are not referenced
-# during feature construction.
-TRAIN      = ("2010-01-01", "2017-12-31")
+TRAIN = ("2010-01-01", "2017-12-31")
 VALIDATION = ("2018-01-01", "2019-12-31")
-HOLDOUT    = ("2020-01-01", "2023-12-31")   # SEALED — do not read during design
+HOLDOUT = ("2020-01-01", "2023-12-31")
+
+RUN_SEGMENT = "in_sample"
+INITIAL_CASH = 100000
+TARGET_TICKER = "SPY"
 
 
-class StarterStrategy:  # subclass QCAlgorithm in the real file: class StarterStrategy(QCAlgorithm):
+class StarterStrategy(QCAlgorithm):
     def initialize(self):
-        # self.set_start_date(*[int(x) for x in TRAIN[0].split("-")])   # set per the segment being run
-        # self.set_end_date(...)
-        # self.set_cash(100_000)
-        # self._symbol = self.add_equity("SPY", Resolution.DAILY).symbol
-        # CORRECT indicator idiom (do NOT write self.rsi = ...):
-        # self._rsi = self.rsi(self._symbol, 14)
-        ...
+        start, end = self._segment_bounds(RUN_SEGMENT)
+        self.set_start_date(*self._date_parts(start))
+        self.set_end_date(*self._date_parts(end))
+        self.set_cash(INITIAL_CASH)
+
+        equity = self.add_equity(TARGET_TICKER, Resolution.DAILY)
+        self._symbol = equity.symbol
+        self._rsi = self.rsi(self._symbol, 14, MovingAverageType.WILDERS, Resolution.DAILY)
+        self._sma = self.sma(self._symbol, 200, Resolution.DAILY)
+        self.set_warm_up(200, Resolution.DAILY)
 
     def on_data(self, data):
-        # Entry/exit logic ONLY uses information available at/before the current bar (no look-ahead).
-        # if not self._rsi.is_ready: return
-        # if self._rsi.current.value < 30 and not self.portfolio.invested:
-        #     self.set_holdings(self._symbol, 1.0)
-        # elif self._rsi.current.value > 70 and self.portfolio.invested:
-        #     self.liquidate(self._symbol)
-        ...
+        if self.is_warming_up:
+            return
+        if not self._rsi.is_ready or not self._sma.is_ready:
+            return
+        if not data.contains_key(self._symbol):
+            return
 
-    # The run harness evaluates TRAIN+VALIDATION (in-sample) then HOLDOUT once, and writes
-    # /workspace/results.json with both segments (sharpe, max_drawdown, equity_curve). See the contract.
+        bar = data[self._symbol]
+        invested = self.portfolio[self._symbol].invested
+        price_above_trend = bar.close > self._sma.current.value
+        oversold_recovery = self._rsi.current.value < 35
+        risk_off = self._rsi.current.value > 68 or bar.close < self._sma.current.value
+
+        if oversold_recovery and price_above_trend and not invested:
+            self.set_holdings(self._symbol, 1.0)
+        elif risk_off and invested:
+            self.liquidate(self._symbol)
+
+    def _segment_bounds(self, segment):
+        if segment == "holdout":
+            return HOLDOUT
+        return (TRAIN[0], VALIDATION[1])
+
+    def _date_parts(self, value):
+        year, month, day = value.split("-")
+        return int(year), int(month), int(day)

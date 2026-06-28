@@ -1,6 +1,6 @@
 -- Vector DB schema for search_knowledge (pgvector path). docs/06.
 -- If VECTORDB_KIND=qdrant, the equivalent is a collection with a payload of the same fields.
--- NOTE: set the embedding dimension N to match the FROZEN embedding model (docs/14 O2).
+-- Frozen embedding model: intfloat/e5-small-v2 (384 dimensions), docs/14 D11.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     citation    TEXT NOT NULL,            -- human-readable citation (powers the provenance view, docs/09)
     tags        TEXT[] DEFAULT '{}',      -- e.g. {mean-reversion, pairs-trading, regime}
     chunk_text  TEXT NOT NULL,
-    embedding   vector(768),             -- TODO: set N to the embedding model's dimension
+    embedding   vector(384),
     metadata    JSONB DEFAULT '{}',
     created_at  TIMESTAMPTZ DEFAULT now()
 );

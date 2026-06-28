@@ -1,14 +1,59 @@
-// Websocket client to the orchestrator: WS /sessions/{id}/stream.
-// Receives normalized events ({kind, id, payload}) and feeds the store, DEDUPING BY event id
-// (the orchestrator may replay recent events on reconnect). STATUS: scaffold.
+export type NormalizedEvent = {
+  kind: string;
+  id: string;
+  type?: string;
+  processedAt?: string | null;
+  payload: Record<string, unknown>;
+};
 
-export type NormalizedEvent = { kind: string; id: string; payload: Record<string, unknown> };
+export type ConnectionStatus = "connecting" | "open" | "closed";
 
-export function connect(sessionId: string, onEvent: (e: NormalizedEvent) => void): () => void {
-  // const seen = new Set<string>();
-  // const ws = new WebSocket(`/ws/sessions/${sessionId}/stream`);
-  // ws.onmessage = (m) => { const e = JSON.parse(m.data); if (!seen.has(e.id)) { seen.add(e.id); onEvent(e); } };
-  // reconnect with backoff on close.
-  // return () => ws.close();
-  throw new Error("scaffold — see docs/09 + docs/10");
+export function connect(
+  sessionId: string,
+  onEvent: (e: NormalizedEvent) => void,
+  onStatus?: (status: ConnectionStatus) => void
+): () => void {
+  const seen = new Set<string>();
+  let closedByClient = false;
+  let socket: WebSocket | null = null;
+  let retryTimer: number | null = null;
+  let attempts = 0;
+
+  const open = () => {
+    onStatus?.("connecting");
+    const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+    socket = new WebSocket(`${wsProtocol}://${window.location.host}/ws/sessions/${sessionId}/stream`);
+
+    socket.onopen = () => {
+      attempts = 0;
+      onStatus?.("open");
+    };
+
+    socket.onmessage = (message) => {
+      const event = JSON.parse(message.data) as NormalizedEvent;
+      if (!seen.has(event.id)) {
+        seen.add(event.id);
+        onEvent(event);
+      }
+    };
+
+    socket.onclose = () => {
+      onStatus?.("closed");
+      if (!closedByClient) {
+        const delay = Math.min(1000 * 2 ** attempts, 10000);
+        attempts += 1;
+        retryTimer = window.setTimeout(open, delay);
+      }
+    };
+  };
+
+  open();
+
+  return () => {
+    closedByClient = true;
+    if (retryTimer !== null) {
+      window.clearTimeout(retryTimer);
+    }
+    socket?.close();
+  };
 }

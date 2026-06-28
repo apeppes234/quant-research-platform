@@ -1,14 +1,12 @@
-"""Websocket route: WS /sessions/{id}/stream.
+"""Websocket stream routes."""
 
-On connect, subscribe the socket to the relay for this session. A background task runs
-events.sse_consumer.consume(session_id) and publishes normalized events to all subscribers via ws_relay.
-Each event carries its `id` for client-side dedupe.
+from __future__ import annotations
 
-STATUS: scaffold.
-"""
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket
 
 router = APIRouter(tags=["stream"])
 
-# @router.websocket("/sessions/{session_id}/stream")
-# async def stream(ws: WebSocket, session_id: str): ...
+
+@router.websocket("/ws/sessions/{session_id}/stream")
+async def stream_session(session_id: str, websocket: WebSocket) -> None:
+    await websocket.app.state.relay.subscribe(session_id, websocket)

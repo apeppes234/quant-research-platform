@@ -35,5 +35,10 @@ docker-compose.qc.yml        # standalone compose for just the QC MCP + proxy (a
 proxy/nginx.conf.example     # inbound bearer check + reverse proxy to the QC MCP container
 ```
 
+The nginx file contains `${QC_MCP_INBOUND_BEARER}` and must be rendered before nginx starts. The provided
+compose files mount it as `/etc/nginx/templates/default.conf.template`, so the official nginx entrypoint
+runs `envsubst` automatically. Publish port `9002` through a public HTTPS tunnel in dev and set that URL as
+`MCP_QUANTCONNECT_URL`.
+
 To build QC's image from source instead of Docker Hub: clone `github.com/QuantConnect/mcp-server` and
 `docker build -t quantconnect/mcp-server .`.

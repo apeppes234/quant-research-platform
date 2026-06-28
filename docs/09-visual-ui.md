@@ -15,17 +15,22 @@ in docs/14). Frontend lives in [`frontend/`](../frontend/).
 | "Thinking…" shimmer | `agent.thinking` |
 | Token / cost meter | `span.model_request_start` / `_end` (`model_usage`) |
 | Rubric criteria flip ✓/✗; iteration counter ticks | `span.outcome_evaluation_start` / `_end` (`result`, `iteration`) |
-| File-bus artifacts (`features.parquet`, `algo.py`, `results.json`) moving between nodes | container file writes surfaced by the agents (and `agent.tool_use` on `write`) |
+| Provenance citations appear | `agent.mcp_tool_result` for `search_knowledge`, normalized as `provenance.add` |
+| Bias ledger updates | local memory-store writes under `/mnt/memory/*snooping*`, normalized as `ledger.entry` |
+| Gated tool approval appears | `agent.tool_use` / `agent.mcp_tool_use` with `evaluated_permission=="ask"`, normalized as `tool.confirmation.requested` |
+| Backtest metrics/equity/drawdown update | QC `agent.mcp_tool_result` for `read_backtest*` normalized as `backtest.update`, plus `/mnt/session/outputs/results.json` |
+| File-bus artifacts (`features*.parquet`, `data_manifest.json`, `algo.py`, `results.json`, `audit.json`, `report.pdf`) moving between nodes | `agent.tool_use` on local `write`/`edit` normalized as `artifact.write` |
+| Downloadable final report appears | Files API lists `/mnt/session/outputs/report.pdf`; frontend polls `/api/sessions/{id}/report` |
 
 > The orchestrator does NOT invent state — it forwards normalized events and the frontend reduces them.
 > The normalization map lives in [`orchestrator/app/events/schema.py`](../orchestrator/app/events/schema.py)
 > and must stay in sync with this table.
 
-## The 7 core views (each = one component in `frontend/src/views/`)
+## The 8 core views (each = one component in `frontend/src/views/`)
 
 1. **Agent-graph canvas** (`AgentGraphCanvas.tsx`) — the topology, alive. Nodes light by status, edges
-   animate on delegation/results, artifacts flow along the file bus. Custom node = `AgentNode.tsx`, custom
-   edge = `DelegationEdge.tsx`.
+   animate on delegation/results, artifacts flow along the file bus. `artifact.write` events produce
+   traveling chips on `DelegationEdge.tsx`.
 2. **Agent inspector** (`AgentInspector.tsx`) — click a node → that thread's stream: summarized thinking,
    tool calls, outputs. Backed by the per-thread stream (`threads.events.stream`, docs/02).
 3. **Iteration panel** (`IterationPanel.tsx`) — the `define_outcome` loop made visible: the 5 rubric
@@ -39,6 +44,8 @@ in docs/14). Frontend lives in [`frontend/`](../frontend/).
    ("stop/redirect" → `user.interrupt`), approve gated tools (`always_ask` → `user.tool_confirmation`).
 7. **Provenance** (`ProvenanceView.tsx`) — which papers / repo notebooks / datasets a design drew on
    (from `search_knowledge` citations, docs/06).
+8. **Report** (`ReportDeliverable.tsx`) — final `report.pdf` status and download link from the session
+   Files API.
 
 ## State flow in the frontend
 

@@ -15,7 +15,7 @@ specialists/
   feature.agent.yaml             # feature building (QuantBook) (PIT-safe tier)
   modeling.agent.yaml            # authors algo.py to contract  (PIT-safe tier)
   backtest.agent.yaml            # compile + backtest on QC     (PIT-safe tier)
-  risk-auditor.agent.yaml        # fresh-context bias audit + ledger
+  risk-auditor.agent.yaml        # fresh-context bias audit + snooping ledger writes
   report.agent.yaml              # final PDF/DOCX report
 environments/
   cloud.environment.yaml         # limited networking + allow_mcp_servers

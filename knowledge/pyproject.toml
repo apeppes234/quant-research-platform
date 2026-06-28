@@ -1,0 +1,8 @@
+[project]
+name = "quant-research-knowledge"
+version = "0.0.1"
+description = "Knowledge-corpus ingestion jobs for search_knowledge."
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg[binary]>=3.2",
+]

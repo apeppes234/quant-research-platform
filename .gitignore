@@ -27,6 +27,7 @@ uv.lock
 node_modules/
 dist/
 .vite/
+*.tsbuildinfo
 *.local
 frontend/.env*
 

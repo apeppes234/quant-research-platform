@@ -14,11 +14,19 @@
   ],
   "required": {
     "splits": ["train", "validation", "holdout"],
+    "dates": {
+      "train": ["2010-01-01", "2017-12-31"],
+      "validation": ["2018-01-01", "2019-12-31"],
+      "holdout": ["2020-01-01", "2023-12-31"]
+    },
     "holdout_sealed_during_design": true,
     "evaluation": "walk-forward",
+    "strategy_entrypoint": "class StarterStrategy(QCAlgorithm) with initialize(self) and on_data(self, data)",
     "outputs": {
-      "results.json": ["in_sample", "holdout"],
-      "metrics_per_segment": ["sharpe", "max_drawdown", "equity_curve"]
+      "workspace_path": "/workspace/results.json",
+      "download_path": "/mnt/session/outputs/results.json",
+      "segments": ["in_sample", "holdout"],
+      "metrics_per_segment": ["sharpe", "max_drawdown", "total_return", "equity_curve", "drawdown"]
     }
   },
   "forbidden": [
@@ -33,7 +41,19 @@
   "qc_idioms": {
     "style": "PEP8 snake_case (or run update_code_to_pep8)",
     "compile_before_backtest": true,
-    "create_project_not_local_files": true
+    "create_project_not_local_files": true,
+    "compile_warnings_allowed": false,
+    "live_trading_tools_allowed": false
+  },
+  "validator": {
+    "command": "python3 contract/validator/validate.py contract/templates/starter_algorithm.py",
+    "checks": [
+      "forbidden imports/calls",
+      "holdout-seal",
+      "indicator-name shadowing",
+      "on_data entry/exit logic",
+      "valid Python body"
+    ]
   },
   "rubric_ref": "see strategy_authoring_contract.md (rubric) and docs/07-iteration-rubric.md"
 }
