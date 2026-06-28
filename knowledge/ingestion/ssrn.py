@@ -132,6 +132,18 @@ def _resolve_body(row: dict, *, manifest_dir: Path | None) -> str:
     return ""
 
 
+def _resolved_pdf_path(row: dict, *, manifest_dir: Path | None) -> Path | None:
+    """Absolute path to a row's local PDF (if any), so metadata can point the viewer at it."""
+
+    pdf_path = row.get("local_pdf_path")
+    if not pdf_path:
+        return None
+    path = Path(str(pdf_path))
+    if not path.is_absolute() and manifest_dir is not None:
+        path = manifest_dir / path
+    return path.resolve()
+
+
 def _validate(row: dict) -> str | None:
     """Return a human-readable reason the row is invalid, or None when it is ingestible."""
 
@@ -149,12 +161,18 @@ def _validate(row: dict) -> str | None:
     return None
 
 
-def _row_metadata(row: dict) -> dict[str, object]:
-    metadata: dict[str, object] = {"provider": "ssrn"}
+def _row_metadata(row: dict, *, title: str, url: str, pdf_path: Path | None) -> dict[str, object]:
+    metadata: dict[str, object] = {"provider": "ssrn", "title": title, "source_url": url}
     for key in _METADATA_KEYS:
         value = row.get(key)
         if value not in (None, "", []):
             metadata[key] = value
+    # A direct PDF url (rare for SSRN) and/or a resolved local PDF power the Research-tab viewer.
+    pdf_url = str(row.get("pdf_url") or "").strip()
+    if pdf_url:
+        metadata["pdf_url"] = pdf_url
+    if pdf_path is not None:
+        metadata["local_pdf_path"] = str(pdf_path)
     return metadata
 
 
@@ -188,6 +206,7 @@ def build_chunks(rows: list[dict], *, manifest_dir: Path | None = None) -> list[
         url = str(row.get("url") or row.get("source")).strip()
         year = row.get("year")
         citation = str(row.get("citation") or f"{title}{f' ({year})' if year else ''}, SSRN").strip()
+        pdf_path = _resolved_pdf_path(row, manifest_dir=manifest_dir)
 
         chunks.extend(
             chunk_text(
@@ -196,7 +215,7 @@ def build_chunks(rows: list[dict], *, manifest_dir: Path | None = None) -> list[
                 source=url,
                 citation=citation,
                 tags=_row_tags(row),
-                metadata=_row_metadata(row),
+                metadata=_row_metadata(row, title=title, url=url, pdf_path=pdf_path),
             )
         )
     return dedupe_chunks(chunks)

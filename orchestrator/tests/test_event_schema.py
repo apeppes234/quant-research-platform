@@ -1,3 +1,5 @@
+import json
+
 from app.events.schema import is_terminal_event, normalize_event
 
 
@@ -106,6 +108,49 @@ def test_search_knowledge_result_maps_to_provenance():
     assert normalized["kind"] == "provenance.add"
     assert normalized["payload"]["citations"][0]["citation"] == "notebook cell 1"
     assert normalized["payload"]["citations"][0]["corpus"] == "repo"
+    # provider is inferred from corpus when not explicit
+    assert normalized["payload"]["citations"][0]["provider"] == "quantresearch_repo"
+
+
+def test_search_knowledge_provenance_preserves_structured_metadata():
+    event = {
+        "id": "evt_8",
+        "type": "agent.mcp_tool_result",
+        "session_thread_id": "thread_paper",
+        "name": "search_knowledge",
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    [
+                        {
+                            "text": "Time series momentum across futures.",
+                            "source": "https://arxiv.org/abs/2401.01234",
+                            "citation": "Researcher (2024). Momentum. arXiv:2401.01234",
+                            "corpus": "papers",
+                            "score": 0.88,
+                            "metadata": {
+                                "provider": "arxiv",
+                                "title": "Time Series Momentum",
+                                "source_url": "https://arxiv.org/abs/2401.01234",
+                                "pdf_url": "https://arxiv.org/pdf/2401.01234",
+                                "tags": ["arxiv", "q-fin", "momentum"],
+                            },
+                        }
+                    ]
+                ),
+            }
+        ],
+    }
+
+    citation = normalize_event(event)["payload"]["citations"][0]
+    assert citation["provider"] == "arxiv"
+    assert citation["title"] == "Time Series Momentum"
+    assert citation["pdf_url"] == "https://arxiv.org/pdf/2401.01234"
+    assert citation["source_url"] == "https://arxiv.org/abs/2401.01234"
+    assert citation["tags"] == ["arxiv", "q-fin", "momentum"]
+    # full metadata is still preserved alongside the lifted fields
+    assert citation["metadata"]["title"] == "Time Series Momentum"
 
 
 def test_snooping_ledger_write_maps_to_ledger_entry():

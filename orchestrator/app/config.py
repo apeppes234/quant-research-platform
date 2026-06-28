@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     orchestrator_port: int = 8000
     frontend_origin: str = "http://localhost:5173"
 
+    # Directories the /api/pdfs route is allowed to serve local PDFs from (CSV of paths).
+    # Defaults to the curated knowledge/data tree (where SSRN local PDFs live). The route never
+    # serves files outside these approved roots.
+    pdf_serve_roots: str = ""
+
+    @property
+    def pdf_root_paths(self) -> list[Path]:
+        roots = [Path(p).expanduser().resolve() for p in _split_csv(self.pdf_serve_roots)]
+        if not roots:
+            roots = [(REPO_ROOT / "knowledge" / "data").resolve()]
+        return [root for root in roots if root.is_dir()]
+
     @property
     def vault_id_list(self) -> list[str]:
         return _split_csv(self.managed_agent_vault_ids)

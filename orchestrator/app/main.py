@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .clients.anthropic_client import ManagedAgentsClient
 from .config import get_settings
 from .events.ws_relay import SessionRelay
-from .routes import sessions, steering, stream
+from .routes import pdfs, sessions, steering, stream
 from .sessions.manager import SessionManager
 
 
@@ -34,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(stream.router)
     app.include_router(steering.router)
+    app.include_router(pdfs.router)
 
     @app.get("/health")
     def health():
