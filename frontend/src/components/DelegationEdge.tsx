@@ -56,7 +56,9 @@ export function DelegationEdge(props: EdgeProps<DelegationEdgeData>) {
         <EdgeLabelRenderer>
           <div
             className="delegation-edge__label"
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            }}
           >
             {props.data.label}
           </div>
@@ -67,9 +69,9 @@ export function DelegationEdge(props: EdgeProps<DelegationEdgeData>) {
 }
 
 function edgeColor(direction: EdgeDirection): string {
-  if (direction === "result") return "#0f9f6e";
-  if (direction === "artifact") return "#b54708";
-  return "#3485a4";
+  if (direction === "result") return "var(--success)";
+  if (direction === "artifact") return "var(--artifact)";
+  return "var(--primary)";
 }
 
 function trimArtifactName(name: string): string {

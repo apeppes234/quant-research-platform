@@ -1,4 +1,15 @@
 import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { connect, type ConnectionStatus } from "./api/ws";
 import { useSessionStore } from "./store/sessionStore";
 import { AgentGraphCanvas } from "./views/AgentGraphCanvas";
@@ -13,11 +24,14 @@ export type SendMode = "message" | "outcome";
 
 export function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("closed");
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("closed");
   const [sending, setSending] = useState(false);
   const applyEvent = useSessionStore((state) => state.applyEvent);
   const addLocalMessage = useSessionStore((state) => state.addLocalMessage);
-  const markToolConfirmationSent = useSessionStore((state) => state.markToolConfirmationSent);
+  const markToolConfirmationSent = useSessionStore(
+    (state) => state.markToolConfirmationSent,
+  );
   const recentEvents = useSessionStore((state) => state.recentEvents);
 
   useEffect(() => {
@@ -34,7 +48,10 @@ export function App() {
           mode === "outcome"
             ? { outcome: { description: message, max_iterations: 5 } }
             : { message };
-        const response = await postJson<{ sessionId: string }>("/api/sessions", body);
+        const response = await postJson<{ sessionId: string }>(
+          "/api/sessions",
+          body,
+        );
         setSessionId(response.sessionId);
       } else if (mode === "outcome") {
         await postJson(`/api/sessions/${sessionId}/define_outcome`, {
@@ -42,7 +59,9 @@ export function App() {
           max_iterations: 5,
         });
       } else {
-        await postJson(`/api/sessions/${sessionId}/message`, { content: message });
+        await postJson(`/api/sessions/${sessionId}/message`, {
+          content: message,
+        });
       }
     } finally {
       setSending(false);
@@ -57,7 +76,7 @@ export function App() {
   const confirmTool = async (
     toolUseId: string,
     result: "allow" | "deny",
-    sessionThreadId?: string
+    sessionThreadId?: string,
   ) => {
     if (!sessionId) return;
     await postJson(`/api/sessions/${sessionId}/confirm`, {
@@ -78,42 +97,74 @@ export function App() {
         onInterrupt={interrupt}
         onConfirmTool={confirmTool}
       />
-      <section className="workbench">
-        <header className="topbar">
+      <Card className="workbench">
+        <CardHeader className="topbar">
           <div>
-            <div className="topbar-title">Agent Graph</div>
-            <div className="topbar-subtitle">{connectionStatus}</div>
+            <CardTitle className="topbar-title">Agent Graph</CardTitle>
+            <CardDescription className="topbar-subtitle">
+              Managed Agents live event stream
+            </CardDescription>
           </div>
-          <div className="event-count">{recentEvents.length} events</div>
-        </header>
+          <CardAction>
+            <Badge
+              variant={connectionStatus === "open" ? "default" : "secondary"}
+            >
+              {recentEvents.length} events
+            </Badge>
+          </CardAction>
+        </CardHeader>
         <div className="workbench-body">
           <div className="graph-pane">
             <AgentGraphCanvas />
           </div>
           <div className="analysis-lane">
             <BacktestResults sessionId={sessionId} />
-            <div className="insight-panels">
-              <IterationPanel />
-              <BiasLedger />
-              <ProvenanceView />
-              <ReportDeliverable sessionId={sessionId} />
-            </div>
+            <Tabs defaultValue="iteration" className="insight-tabs">
+              <TabsList className="insight-tabs__list">
+                <TabsTrigger value="iteration">Iteration</TabsTrigger>
+                <TabsTrigger value="ledger">Ledger</TabsTrigger>
+                <TabsTrigger value="sources">Sources</TabsTrigger>
+                <TabsTrigger value="report">Report</TabsTrigger>
+              </TabsList>
+              <TabsContent value="iteration" className="insight-tabs__content">
+                <IterationPanel />
+              </TabsContent>
+              <TabsContent value="ledger" className="insight-tabs__content">
+                <BiasLedger />
+              </TabsContent>
+              <TabsContent value="sources" className="insight-tabs__content">
+                <ProvenanceView />
+              </TabsContent>
+              <TabsContent value="report" className="insight-tabs__content">
+                <ReportDeliverable sessionId={sessionId} />
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
-      </section>
-      <aside className="event-panel">
-        <div className="panel-header">
-          <div className="panel-title">Events</div>
-        </div>
-        <div className="event-list">
-          {recentEvents.map((event) => (
-            <div key={event.id} className="event-row">
-              <span>{event.kind}</span>
-              <code>{event.type ?? event.id}</code>
+      </Card>
+      <Card className="event-panel">
+        <CardHeader className="panel-header">
+          <CardTitle className="panel-title">Events</CardTitle>
+          <CardDescription className="panel-subtitle">
+            Normalized relay tail
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="event-panel__content">
+          <ScrollArea className="event-list">
+            <div className="event-list__inner">
+              {recentEvents.length === 0 ? (
+                <div className="phase-empty">No events observed.</div>
+              ) : null}
+              {recentEvents.map((event) => (
+                <div key={event.id} className="event-row">
+                  <Badge variant="outline">{event.kind}</Badge>
+                  <code>{event.type ?? event.id}</code>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </aside>
+          </ScrollArea>
+        </CardContent>
+      </Card>
     </main>
   );
 }

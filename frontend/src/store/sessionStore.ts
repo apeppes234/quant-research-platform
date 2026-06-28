@@ -52,7 +52,8 @@ export type ChatMessage = {
   pending?: boolean;
 };
 
-export type ToolConfirmationStatus = "waiting" | "sent" | "acknowledged" | "denied";
+export type ToolConfirmationStatus =
+  "waiting" | "sent" | "acknowledged" | "denied";
 
 export type ToolConfirmationState = {
   eventId: string;
@@ -148,7 +149,10 @@ export type SessionState = {
 export type SessionStore = SessionState & {
   applyEvent: (event: NormalizedEvent) => void;
   addLocalMessage: (text: string) => void;
-  markToolConfirmationSent: (toolUseId: string, result: "allow" | "deny") => void;
+  markToolConfirmationSent: (
+    toolUseId: string,
+    result: "allow" | "deny",
+  ) => void;
   setBacktestResults: (results: BacktestState) => void;
   reset: () => void;
 };
@@ -174,7 +178,12 @@ export const useSessionStore = create<SessionStore>((set) => ({
     set((state) => ({
       chat: [
         ...state.chat,
-        { id: `local:${Date.now()}`, role: "user" as const, text, pending: true },
+        {
+          id: `local:${Date.now()}`,
+          role: "user" as const,
+          text,
+          pending: true,
+        },
       ].slice(-40),
     })),
   markToolConfirmationSent: (toolUseId, result) =>
@@ -183,10 +192,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
         state.pendingConfirmations,
         toolUseId,
         result === "deny" ? "denied" : "sent",
-        result
+        result,
       ),
     })),
-  setBacktestResults: (results) => set({ backtest: normalizeBacktest(results) }),
+  setBacktestResults: (results) =>
+    set({ backtest: normalizeBacktest(results) }),
   reset: () => set(initialState),
 }));
 
@@ -210,13 +220,20 @@ export function reduce(state: SessionState, e: NormalizedEvent): SessionState {
         },
       };
       const artifacts = reconcileArtifactTargets(threads, state.artifacts, now);
-      const resolvedEdges = artifactEdgesForResolvedTargets(state.artifacts, artifacts, e.id);
+      const resolvedEdges = artifactEdgesForResolvedTargets(
+        state.artifacts,
+        artifacts,
+        e.id,
+      );
       return {
         ...state,
         recentEvents,
         threads,
         artifacts,
-        edges: resolvedEdges.length > 0 ? [...state.edges, ...resolvedEdges].slice(-50) : state.edges,
+        edges:
+          resolvedEdges.length > 0
+            ? [...state.edges, ...resolvedEdges].slice(-50)
+            : state.edges,
       };
     }
     case "node.status": {
@@ -236,7 +253,9 @@ export function reduce(state: SessionState, e: NormalizedEvent): SessionState {
           [threadId]: {
             ...existing,
             status: statusValue(payload.status),
-            lastEventAt: stringValue((e as { processedAt?: string }).processedAt),
+            lastEventAt: stringValue(
+              (e as { processedAt?: string }).processedAt,
+            ),
           },
         },
       };
@@ -259,7 +278,11 @@ export function reduce(state: SessionState, e: NormalizedEvent): SessionState {
         label: stringValue(payload.content),
         animatingUntil: Date.now() + 2500,
       };
-      return { ...state, recentEvents, edges: [...state.edges, edge].slice(-40) };
+      return {
+        ...state,
+        recentEvents,
+        edges: [...state.edges, edge].slice(-40),
+      };
     }
     case "artifact.write": {
       const artifact = artifactFromPayload(payload, state.threads);
@@ -299,13 +322,17 @@ export function reduce(state: SessionState, e: NormalizedEvent): SessionState {
     }
     case "node.badge": {
       const threadId = stringValue(payload.threadId);
-      if (!threadId || !state.threads[threadId]) return { ...state, recentEvents };
+      if (!threadId || !state.threads[threadId])
+        return { ...state, recentEvents };
       return {
         ...state,
         recentEvents,
         threads: {
           ...state.threads,
-          [threadId]: { ...state.threads[threadId], badge: stringValue(payload.label) },
+          [threadId]: {
+            ...state.threads[threadId],
+            badge: stringValue(payload.label),
+          },
         },
       };
     }
@@ -315,33 +342,45 @@ export function reduce(state: SessionState, e: NormalizedEvent): SessionState {
         ...state,
         recentEvents,
         chat: text
-          ? [...state.chat, { id: e.id, role: "agent" as const, text }].slice(-40)
+          ? [...state.chat, { id: e.id, role: "agent" as const, text }].slice(
+              -40,
+            )
           : state.chat,
       };
     }
     case "agent.thinking": {
       const threadId = stringValue(payload.threadId);
-      if (!threadId || !state.threads[threadId]) return { ...state, recentEvents };
+      if (!threadId || !state.threads[threadId])
+        return { ...state, recentEvents };
       return {
         ...state,
         recentEvents,
         threads: {
           ...state.threads,
-          [threadId]: { ...state.threads[threadId], thinking: stringValue(payload.text) },
+          [threadId]: {
+            ...state.threads[threadId],
+            thinking: stringValue(payload.text),
+          },
         },
       };
     }
     case "cost.add": {
       const threadId = stringValue(payload.threadId);
-      if (!threadId || !state.threads[threadId]) return { ...state, recentEvents };
-      const usage = payload.usage as { input_tokens?: number; output_tokens?: number } | undefined;
-      const delta = Number(usage?.input_tokens ?? 0) + Number(usage?.output_tokens ?? 0);
+      if (!threadId || !state.threads[threadId])
+        return { ...state, recentEvents };
+      const usage = payload.usage as
+        { input_tokens?: number; output_tokens?: number } | undefined;
+      const delta =
+        Number(usage?.input_tokens ?? 0) + Number(usage?.output_tokens ?? 0);
       return {
         ...state,
         recentEvents,
         threads: {
           ...state.threads,
-          [threadId]: { ...state.threads[threadId], tokens: state.threads[threadId].tokens + delta },
+          [threadId]: {
+            ...state.threads[threadId],
+            tokens: state.threads[threadId].tokens + delta,
+          },
         },
       };
     }
@@ -385,7 +424,11 @@ export function reduce(state: SessionState, e: NormalizedEvent): SessionState {
       return {
         ...state,
         recentEvents,
-        pendingConfirmations: upsertToolConfirmation(state.pendingConfirmations, payload, e),
+        pendingConfirmations: upsertToolConfirmation(
+          state.pendingConfirmations,
+          payload,
+          e,
+        ),
       };
     case "user.event":
       return applyUserEvent({ ...state, recentEvents }, payload, e);
@@ -445,7 +488,7 @@ export function defaultRubricCriteria(): RubricCriterionState[] {
 function applyUserEvent(
   state: SessionState,
   payload: Record<string, unknown>,
-  event: NormalizedEvent
+  event: NormalizedEvent,
 ): SessionState {
   const userEventType = stringValue(payload.userEventType);
   const content = stringValue(payload.content);
@@ -460,8 +503,12 @@ function applyUserEvent(
         ? updateToolConfirmationStatus(
             state.pendingConfirmations,
             toolUseId,
-            processed ? (result === "deny" ? "denied" : "acknowledged") : "sent",
-            result
+            processed
+              ? result === "deny"
+                ? "denied"
+                : "acknowledged"
+              : "sent",
+            result,
           )
         : state.pendingConfirmations,
       chat: [
@@ -491,7 +538,10 @@ function applyUserEvent(
     };
   }
 
-  if (userEventType === "user.message" || userEventType === "user.define_outcome") {
+  if (
+    userEventType === "user.message" ||
+    userEventType === "user.define_outcome"
+  ) {
     return {
       ...state,
       chat: reconcileUserMessage(state.chat, event.id, content, processed),
@@ -505,35 +555,43 @@ function reconcileUserMessage(
   current: ChatMessage[],
   eventId: string,
   content: string,
-  processed: boolean
+  processed: boolean,
 ): ChatMessage[] {
   if (!content) return current;
   const pendingIndex = current.findIndex(
-    (message) => message.role === "user" && message.pending && message.text === content
+    (message) =>
+      message.role === "user" && message.pending && message.text === content,
   );
   if (pendingIndex >= 0) {
     return current.map((message, index) =>
-      index === pendingIndex ? { ...message, id: eventId, pending: !processed } : message
+      index === pendingIndex
+        ? { ...message, id: eventId, pending: !processed }
+        : message,
     );
   }
   if (current.some((message) => message.id === eventId)) return current;
-  return [...current, { id: eventId, role: "user" as const, text: content, pending: !processed }].slice(-40);
+  return [
+    ...current,
+    { id: eventId, role: "user" as const, text: content, pending: !processed },
+  ].slice(-40);
 }
 
 function upsertToolConfirmation(
   current: ToolConfirmationState[],
   payload: Record<string, unknown>,
-  event: NormalizedEvent
+  event: NormalizedEvent,
 ): ToolConfirmationState[] {
   const item = toolConfirmationFromPayload(payload, event);
   if (!item) return current;
-  const filtered = current.filter((confirmation) => confirmation.toolUseId !== item.toolUseId);
+  const filtered = current.filter(
+    (confirmation) => confirmation.toolUseId !== item.toolUseId,
+  );
   return [...filtered, item].slice(-20);
 }
 
 function toolConfirmationFromPayload(
   payload: Record<string, unknown>,
-  event: NormalizedEvent
+  event: NormalizedEvent,
 ): ToolConfirmationState | null {
   const toolUseId = stringValue(payload.toolUseId) || event.id;
   const tool = stringValue(payload.tool) || "tool";
@@ -542,7 +600,8 @@ function toolConfirmationFromPayload(
     eventId: event.id,
     toolUseId,
     threadId: stringValue(payload.threadId),
-    sessionThreadId: stringValue(payload.sessionThreadId) || stringValue(payload.threadId),
+    sessionThreadId:
+      stringValue(payload.sessionThreadId) || stringValue(payload.threadId),
     tool,
     label: stringValue(payload.label) || `Approve ${tool}`,
     input: payload.input,
@@ -556,7 +615,7 @@ function updateToolConfirmationStatus(
   current: ToolConfirmationState[],
   toolUseId: string,
   status: ToolConfirmationStatus,
-  result?: "allow" | "deny"
+  result?: "allow" | "deny",
 ): ToolConfirmationState[] {
   return current.map((confirmation) =>
     confirmation.toolUseId === toolUseId
@@ -564,9 +623,12 @@ function updateToolConfirmationStatus(
           ...confirmation,
           status,
           result,
-          processedAt: status === "acknowledged" || status === "denied" ? new Date().toISOString() : confirmation.processedAt,
+          processedAt:
+            status === "acknowledged" || status === "denied"
+              ? new Date().toISOString()
+              : confirmation.processedAt,
         }
-      : confirmation
+      : confirmation,
   );
 }
 
@@ -577,9 +639,10 @@ function confirmationResult(value: unknown): "allow" | "deny" {
 function applyRubricPayload(
   current: OutcomeState,
   payload: Record<string, unknown>,
-  phase: "running" | "ended"
+  phase: "running" | "ended",
 ): OutcomeState {
-  const iteration = Number(payload.iteration ?? current.iteration) || current.iteration;
+  const iteration =
+    Number(payload.iteration ?? current.iteration) || current.iteration;
   const incoming = criteriaFromPayload(payload.criteria);
   const result = stringValue(payload.result) || current.result;
   const explanation = stringValue(payload.explanation) || current.explanation;
@@ -589,7 +652,10 @@ function applyRubricPayload(
       : phase === "running"
         ? current.criteria.map((criterion) => ({
             ...criterion,
-            status: criterion.status === "unknown" ? ("running" as const) : criterion.status,
+            status:
+              criterion.status === "unknown"
+                ? ("running" as const)
+                : criterion.status,
           }))
         : current.criteria;
   return {
@@ -613,7 +679,8 @@ function criteriaFromPayload(value: unknown): RubricCriterionState[] {
       return {
         id,
         label,
-        condition: stringValue(row.condition) || stringValue(row.pass_condition),
+        condition:
+          stringValue(row.condition) || stringValue(row.pass_condition),
         status: criterionStatus(row.status),
         explanation: stringValue(row.explanation),
       };
@@ -624,7 +691,7 @@ function criteriaFromPayload(value: unknown): RubricCriterionState[] {
 function mergeCriteria(
   current: RubricCriterionState[],
   incoming: RubricCriterionState[],
-  phase: "running" | "ended"
+  phase: "running" | "ended",
 ): RubricCriterionState[] {
   const byId = new Map(current.map((criterion) => [criterion.id, criterion]));
   for (const criterion of incoming) {
@@ -640,7 +707,9 @@ function mergeCriteria(
           : criterion.status,
     });
   }
-  return defaultRubricCriteria().map((criterion) => byId.get(criterion.id) ?? criterion);
+  return defaultRubricCriteria().map(
+    (criterion) => byId.get(criterion.id) ?? criterion,
+  );
 }
 
 function criterionStatus(value: unknown): CriterionStatus {
@@ -648,7 +717,10 @@ function criterionStatus(value: unknown): CriterionStatus {
   return "unknown";
 }
 
-function upsertLedgerEntry(current: LedgerEntry[], payload: Record<string, unknown>): LedgerEntry[] {
+function upsertLedgerEntry(
+  current: LedgerEntry[],
+  payload: Record<string, unknown>,
+): LedgerEntry[] {
   const entry = ledgerEntryFromPayload(payload.entry);
   if (!entry) return current;
   const key = ledgerKey(entry);
@@ -679,7 +751,7 @@ function ledgerKey(entry: LedgerEntry): string {
 
 function mergeProvenance(
   current: ProvenanceCitation[],
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
 ): ProvenanceCitation[] {
   const citations = citationsFromPayload(payload.citations);
   if (citations.length === 0) return current;
@@ -745,7 +817,10 @@ function normalizeBacktest(value: BacktestState): BacktestState {
   return value;
 }
 
-function mergeBacktestUpdate(current: BacktestState, payload: Record<string, unknown>): BacktestState {
+function mergeBacktestUpdate(
+  current: BacktestState,
+  payload: Record<string, unknown>,
+): BacktestState {
   const result = payload.result;
   if (isBacktestState(result) && result.segments) {
     return result;
@@ -760,13 +835,15 @@ function mergeBacktestUpdate(current: BacktestState, payload: Record<string, unk
   };
 }
 
-function isBacktestState(value: unknown): value is Exclude<BacktestState, null> {
+function isBacktestState(
+  value: unknown,
+): value is Exclude<BacktestState, null> {
   return Boolean(value && typeof value === "object");
 }
 
 function artifactFromPayload(
   payload: Record<string, unknown>,
-  threads: Record<string, ThreadState>
+  threads: Record<string, ThreadState>,
 ): ArtifactState | null {
   const raw = payload.artifact;
   if (!raw || typeof raw !== "object") return null;
@@ -777,7 +854,8 @@ function artifactFromPayload(
   const fromThreadId = stringValue(payload.threadId);
   const kind = artifactKind(stringValue(artifact.kind), name);
   const toThreadId =
-    stringValue(payload.toThreadId) || inferArtifactTarget(threads, kind, fromThreadId);
+    stringValue(payload.toThreadId) ||
+    inferArtifactTarget(threads, kind, fromThreadId);
   return {
     id: path,
     name,
@@ -806,7 +884,8 @@ function artifactKind(value: string, name: string): ArtifactKind {
   ) {
     return value;
   }
-  if (name.startsWith("features") && name.endsWith(".parquet")) return "features";
+  if (name.startsWith("features") && name.endsWith(".parquet"))
+    return "features";
   if (name === "data_manifest.json") return "manifest";
   if (name === "algo.py") return "algo";
   if (name === "results.json") return "results";
@@ -818,7 +897,7 @@ function artifactKind(value: string, name: string): ArtifactKind {
 function inferArtifactTarget(
   threads: Record<string, ThreadState>,
   kind: ArtifactKind,
-  fromThreadId?: string
+  fromThreadId?: string,
 ): string {
   const hints: Record<ArtifactKind, string[]> = {
     features: ["feature", "modeling"],
@@ -834,7 +913,7 @@ function inferArtifactTarget(
     const match = candidates.find(
       (thread) =>
         thread.threadId !== fromThreadId &&
-        thread.agentName.toLowerCase().includes(hint)
+        thread.agentName.toLowerCase().includes(hint),
     );
     if (match) return match.threadId;
   }
@@ -844,14 +923,22 @@ function inferArtifactTarget(
 function reconcileArtifactTargets(
   threads: Record<string, ThreadState>,
   artifacts: Record<string, ArtifactState>,
-  now = Date.now()
+  now = Date.now(),
 ): Record<string, ArtifactState> {
   const next = { ...artifacts };
   for (const artifact of Object.values(next)) {
     if (!artifact.toThreadId) {
-      const toThreadId = inferArtifactTarget(threads, artifact.kind, artifact.fromThreadId);
+      const toThreadId = inferArtifactTarget(
+        threads,
+        artifact.kind,
+        artifact.fromThreadId,
+      );
       if (toThreadId) {
-        next[artifact.id] = { ...artifact, toThreadId, animatingUntil: now + 3200 };
+        next[artifact.id] = {
+          ...artifact,
+          toThreadId,
+          animatingUntil: now + 3200,
+        };
       }
     }
   }
@@ -861,14 +948,14 @@ function reconcileArtifactTargets(
 function artifactEdgesForResolvedTargets(
   previous: Record<string, ArtifactState>,
   next: Record<string, ArtifactState>,
-  eventId: string
+  eventId: string,
 ): EdgeState[] {
   return Object.values(next)
     .filter(
       (artifact) =>
         artifact.fromThreadId &&
         artifact.toThreadId &&
-        !previous[artifact.id]?.toThreadId
+        !previous[artifact.id]?.toThreadId,
     )
     .map((artifact) => ({
       id: `${eventId}:${artifact.fromThreadId}:${artifact.toThreadId}:${artifact.id}`,

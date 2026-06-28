@@ -1,4 +1,15 @@
 import { useEffect, useState } from "react";
+import { DownloadIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 type Props = {
   sessionId: string | null;
@@ -57,30 +68,47 @@ export function ReportDeliverable({ sessionId }: Props) {
   }, [sessionId]);
 
   return (
-    <section className="phase-panel report-panel" data-testid="report-deliverable" aria-label="Report">
-      <header className="phase-panel__header">
+    <Card
+      className="phase-panel report-panel"
+      data-testid="report-deliverable"
+      aria-label="Report"
+    >
+      <CardHeader className="phase-panel__header">
         <div>
-          <div className="panel-title">Report</div>
-          <div className="panel-subtitle">{subtitle(status, file)}</div>
+          <CardTitle className="panel-title">Report</CardTitle>
+          <CardDescription className="panel-subtitle">
+            {subtitle(status, file)}
+          </CardDescription>
         </div>
         {file ? (
-          <a className="download-link" href={file.downloadUrl}>
-            Download
-          </a>
+          <CardAction>
+            <Button asChild size="sm">
+              <a href={file.downloadUrl}>
+                <DownloadIcon data-icon="inline-start" />
+                Download
+              </a>
+            </Button>
+          </CardAction>
         ) : null}
-      </header>
-      <div className="report-body">
+      </CardHeader>
+      <CardContent className="report-body">
         {file ? (
           <>
             <strong>{file.filename}</strong>
-            <span>{file.createdAt ? `Indexed ${formatDate(file.createdAt)}` : "Indexed by Files API"}</span>
-            {typeof file.sizeBytes === "number" ? <code>{formatBytes(file.sizeBytes)}</code> : null}
+            <span>
+              {file.createdAt
+                ? `Indexed ${formatDate(file.createdAt)}`
+                : "Indexed by Files API"}
+            </span>
+            {typeof file.sizeBytes === "number" ? (
+              <Badge variant="outline">{formatBytes(file.sizeBytes)}</Badge>
+            ) : null}
           </>
         ) : (
           <div className="phase-empty">{emptyText(status)}</div>
         )}
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }
 

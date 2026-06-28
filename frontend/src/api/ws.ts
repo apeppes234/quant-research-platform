@@ -11,7 +11,7 @@ export type ConnectionStatus = "connecting" | "open" | "closed";
 export function connect(
   sessionId: string,
   onEvent: (e: NormalizedEvent) => void,
-  onStatus?: (status: ConnectionStatus) => void
+  onStatus?: (status: ConnectionStatus) => void,
 ): () => void {
   const seen = new Set<string>();
   let closedByClient = false;
@@ -22,7 +22,9 @@ export function connect(
   const open = () => {
     onStatus?.("connecting");
     const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-    socket = new WebSocket(`${wsProtocol}://${window.location.host}/ws/sessions/${sessionId}/stream`);
+    socket = new WebSocket(
+      `${wsProtocol}://${window.location.host}/ws/sessions/${sessionId}/stream`,
+    );
 
     socket.onopen = () => {
       attempts = 0;

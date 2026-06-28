@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import ReactFlow, { Background, Controls, type Edge, type Node } from "reactflow";
+import ReactFlow, {
+  Background,
+  Controls,
+  type Edge,
+  type Node,
+} from "reactflow";
 import { AgentNode } from "../components/AgentNode";
 import { DelegationEdge } from "../components/DelegationEdge";
-import { useSessionStore, type ArtifactState, type ThreadState } from "../store/sessionStore";
+import {
+  useSessionStore,
+  type ArtifactState,
+  type ThreadState,
+} from "../store/sessionStore";
 
 const nodeTypes = { agent: AgentNode };
 const edgeTypes = { delegation: DelegationEdge };
@@ -21,39 +30,48 @@ export function AgentGraphCanvas() {
         position: positionFor(index),
         data: thread,
       })),
-    [threads]
+    [threads],
   );
 
-  const edges: Edge[] = useMemo(
-    () => {
-      const artifactLookup = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
-      return graphEdges.map((edge) => ({
-        id: edge.id,
-        source: edge.fromThreadId,
-        target: edge.toThreadId,
-        type: "delegation",
-        animated: edge.animatingUntil > now,
-        data: {
-          direction: edge.direction,
-          label: edge.label,
-          artifacts: (edge.artifactIds ?? [])
-            .map((id) => artifactLookup.get(id))
-            .filter((artifact): artifact is ArtifactState => Boolean(artifact && artifact.animatingUntil > now)),
-        },
-      }));
-    },
-    [artifacts, graphEdges, now]
-  );
+  const edges: Edge[] = useMemo(() => {
+    const artifactLookup = new Map(
+      artifacts.map((artifact) => [artifact.id, artifact]),
+    );
+    return graphEdges.map((edge) => ({
+      id: edge.id,
+      source: edge.fromThreadId,
+      target: edge.toThreadId,
+      type: "delegation",
+      animated: edge.animatingUntil > now,
+      data: {
+        direction: edge.direction,
+        label: edge.label,
+        artifacts: (edge.artifactIds ?? [])
+          .map((id) => artifactLookup.get(id))
+          .filter((artifact): artifact is ArtifactState =>
+            Boolean(artifact && artifact.animatingUntil > now),
+          ),
+      },
+    }));
+  }, [artifacts, graphEdges, now]);
 
-  const orderedArtifacts = useMemo(() => [...artifacts].sort(compareArtifacts), [artifacts]);
+  const orderedArtifacts = useMemo(
+    () => [...artifacts].sort(compareArtifacts),
+    [artifacts],
+  );
 
   return (
     <div className="canvas-shell" data-testid="agent-graph-canvas">
-      {nodes.length === 0 ? <div className="canvas-empty">Waiting for session events</div> : null}
+      {nodes.length === 0 ? (
+        <div className="canvas-empty">Waiting for session events</div>
+      ) : null}
       {orderedArtifacts.length > 0 ? (
         <div className="artifact-rail" aria-label="File bus artifacts">
           {orderedArtifacts.map((artifact) => (
-            <div key={artifact.id} className={`artifact-pill artifact-pill--${artifact.kind}`}>
+            <div
+              key={artifact.id}
+              className={`artifact-pill artifact-pill--${artifact.kind}`}
+            >
               <span>{artifact.name}</span>
               <code>{artifact.path}</code>
             </div>
@@ -69,8 +87,8 @@ export function AgentGraphCanvas() {
         minZoom={0.4}
         maxZoom={1.6}
       >
-        <Background gap={22} size={1} />
-        <Controls showInteractive={false} />
+        <Background color="var(--border)" gap={22} size={1} />
+        <Controls className="flow-controls" showInteractive={false} />
       </ReactFlow>
     </div>
   );
