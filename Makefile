@@ -51,6 +51,7 @@ ingest:              ## Run all ingestion jobs (SSRN, arXiv, QuantResearch repo,
 test:                ## Run all tests
 	python3 contract/validator/validate.py contract/templates/starter_algorithm.py
 	cd orchestrator && uv run pytest -q || true
+	cd knowledge && uv run --with pytest --with pypdf pytest -q || true
 	cd frontend && npm test || true
 
 fmt:                 ## Format everything

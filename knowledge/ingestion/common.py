@@ -30,8 +30,21 @@ class KnowledgeChunk:
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
 
+    @property
+    def content_hash(self) -> str:
+        """Stable dedup key over provider + source + citation + chunk text.
+
+        `provider` is read from metadata (e.g. "ssrn"/"arxiv") and falls back to the corpus so
+        every chunk gets a deterministic hash. Re-running an ingestion job produces identical
+        hashes, which the upsert path uses to skip duplicates idempotently.
+        """
+
+        provider = str(self.metadata.get("provider", self.corpus))
+        basis = " ".join([provider, self.source, self.citation, self.text])
+        return hashlib.blake2b(basis.encode("utf-8"), digest_size=16).hexdigest()
+
     def to_json(self) -> dict[str, object]:
-        return asdict(self)
+        return {**asdict(self), "content_hash": self.content_hash}
 
 
 def default_pg_dsn() -> str:
@@ -99,7 +112,14 @@ def chunk_text(
     return chunks
 
 
-def notebook_cell_chunks(path: Path, *, corpus: str = "repo", tags: list[str] | None = None) -> list[KnowledgeChunk]:
+def notebook_cell_chunks(
+    path: Path,
+    *,
+    corpus: str = "repo",
+    tags: list[str] | None = None,
+    citation: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> list[KnowledgeChunk]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     cells = payload.get("cells", [])
     chunks: list[KnowledgeChunk] = []
@@ -108,18 +128,44 @@ def notebook_cell_chunks(path: Path, *, corpus: str = "repo", tags: list[str] | 
         if not source.strip():
             continue
         cell_type = str(cell.get("cell_type", "cell"))
-        citation = f"{path.name} cell {index + 1}"
+        cite = f"{citation or path.name} cell {index + 1}"
+        cell_meta: dict[str, object] = {
+            **(metadata or {}),
+            "cell_index": index,
+            "cell_type": cell_type,
+        }
+        if cell_type == "code":
+            cell_meta.setdefault("language", "python")
+            cell_meta.setdefault("source_type", "code")
+        else:
+            cell_meta.setdefault("language", "markdown")
+            cell_meta.setdefault("source_type", "explanation")
         chunks.append(
             KnowledgeChunk(
                 corpus=corpus,
                 source=str(path),
-                citation=citation,
+                citation=cite,
                 text=source.strip(),
                 tags=[*(tags or []), cell_type],
-                metadata={"cell_index": index, "cell_type": cell_type},
+                metadata=cell_meta,
             )
         )
     return chunks
+
+
+def infer_tags(text: str, vocab: dict[str, tuple[str, ...]]) -> list[str]:
+    """Return tags from `vocab` whose keyword substrings appear in `text` (case-insensitive).
+
+    `vocab` maps a canonical tag to the substrings that imply it, e.g.
+    {"machine-learning": ("neural", "deep learning", "lstm")}. Order is preserved and stable.
+    """
+
+    lower = text.lower()
+    found: list[str] = []
+    for tag, needles in vocab.items():
+        if any(needle in lower for needle in needles) and tag not in found:
+            found.append(tag)
+    return found
 
 
 def embed_text(text: str) -> list[float]:
@@ -152,15 +198,17 @@ def upsert_chunks(chunks: Iterable[KnowledgeChunk], *, dsn: str | None = None) -
     if not rows:
         return 0
 
+    inserted = 0
     with psycopg.connect(dsn or default_pg_dsn()) as conn:
         with conn.cursor() as cur:
             for chunk in rows:
                 cur.execute(
                     """
                     INSERT INTO knowledge_chunks
-                        (corpus, source, citation, tags, chunk_text, embedding, metadata)
+                        (corpus, source, citation, tags, chunk_text, embedding, metadata, content_hash)
                     VALUES
-                        (%s, %s, %s, %s, %s, %s::vector, %s)
+                        (%s, %s, %s, %s, %s, %s::vector, %s, %s)
+                    ON CONFLICT (content_hash) DO NOTHING
                     """,
                     (
                         chunk.corpus,
@@ -176,10 +224,30 @@ def upsert_chunks(chunks: Iterable[KnowledgeChunk], *, dsn: str | None = None) -
                                 "embedding_dim": EMBEDDING_DIM,
                             }
                         ),
+                        chunk.content_hash,
                     ),
                 )
+                inserted += cur.rowcount
         conn.commit()
-    return len(rows)
+    return inserted
+
+
+def dedupe_chunks(chunks: Iterable[KnowledgeChunk]) -> list[KnowledgeChunk]:
+    """Drop chunks that share a content_hash, preserving first-seen order.
+
+    The DB upsert is already idempotent via the unique index, but de-duplicating in memory keeps
+    JSONL snapshots clean and avoids redundant embedding work on repeated runs.
+    """
+
+    seen: set[str] = set()
+    unique: list[KnowledgeChunk] = []
+    for chunk in chunks:
+        digest = chunk.content_hash
+        if digest in seen:
+            continue
+        seen.add(digest)
+        unique.append(chunk)
+    return unique
 
 
 def write_jsonl(chunks: Iterable[KnowledgeChunk], path: Path) -> int:

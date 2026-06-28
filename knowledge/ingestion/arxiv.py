@@ -1,69 +1,136 @@
-"""Ingest arXiv q-fin preprints -> corpus 'papers' (keyless API). docs/06."""
+"""Ingest arXiv q-fin preprints -> corpus 'papers' via the official `arxiv` PyPI client. docs/06.
+
+arXiv is the **automated** academic feed (contrast SSRN, which is curated/manual). The `arxiv` package
+wraps arXiv's public, keyless API (paging, retries, rate-limit delay), so this module just maps its
+``arxiv.Result`` objects into our ``KnowledgeChunk`` shape. Results are research grounding/citations for
+the Paper Agent — not a price/return source; every hypothesis is validated later by a QC backtest.
+"""
 
 from __future__ import annotations
 
-import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
+import sys
 
-from .common import KnowledgeChunk, chunk_text, upsert_chunks
+import arxiv as arxiv_api
 
-ARXIV_API = "https://export.arxiv.org/api/query"
-ATOM = "{http://www.w3.org/2005/Atom}"
+from .common import KnowledgeChunk, chunk_text, infer_tags
+
+# Canonical topic tag -> substrings that imply it (matched against title + abstract).
+TOPIC_VOCAB: dict[str, tuple[str, ...]] = {
+    "momentum": ("momentum", "trend follow", "time series momentum"),
+    "mean-reversion": ("mean revers", "mean-revert", "contrarian"),
+    "pairs-trading": ("pairs trad", "pair trad", "statistical arbitrage", "stat arb"),
+    "cointegration": ("cointegrat",),
+    "factor": ("factor model", "factor invest", "cross-section", "cross section", "fama"),
+    "volatility": ("volatilit", "garch", "variance", "vix"),
+    "options": ("option pricing", "implied vol", "derivative", "black-scholes", "black scholes"),
+    "portfolio": ("portfolio", "asset allocation", "markowitz", "risk parity"),
+    "microstructure": ("microstructure", "order book", "limit order", "high frequency", "high-frequency"),
+    "machine-learning": ("machine learning", "deep learning", "neural network", "reinforcement learning", "lstm", "transformer"),
+    "risk": ("value at risk", "var ", "drawdown", "tail risk", "expected shortfall"),
+    "regime": ("regime", "hidden markov", "markov switch"),
+}
 
 
-def fetch(query: str = "cat:q-fin.*", *, limit: int = 50) -> list[dict[str, str]]:
-    params = urllib.parse.urlencode(
-        {
-            "search_query": query,
-            "start": 0,
-            "max_results": max(1, min(limit, 100)),
-            "sortBy": "submittedDate",
-            "sortOrder": "descending",
-        }
+def fetch(query: str = "cat:q-fin.*", *, limit: int = 50) -> list[dict[str, object]]:
+    search = arxiv_api.Search(
+        query=query,
+        max_results=max(1, min(limit, 100)),
+        sort_by=arxiv_api.SortCriterion.SubmittedDate,
+        sort_order=arxiv_api.SortOrder.Descending,
     )
-    with urllib.request.urlopen(f"{ARXIV_API}?{params}", timeout=45) as response:
-        root = ET.fromstring(response.read())
-
-    papers: list[dict[str, str]] = []
-    for entry in root.findall(f"{ATOM}entry"):
-        title = _text(entry, "title")
-        summary = _text(entry, "summary")
-        published = _text(entry, "published")
-        paper_id = _text(entry, "id")
-        papers.append(
-            {
-                "title": " ".join(title.split()),
-                "summary": " ".join(summary.split()),
-                "published": published,
-                "url": paper_id,
-            }
-        )
+    papers: list[dict[str, object]] = []
+    for result in arxiv_api.Client().results(search):
+        try:
+            papers.append(_result_to_dict(result))
+        except Exception as exc:  # one malformed entry must not kill the batch
+            _warn(f"skipping malformed entry ({exc})")
     return papers
 
 
-def build_chunks(papers: list[dict[str, str]]) -> list[KnowledgeChunk]:
+def build_chunks(papers: list[dict[str, object]]) -> list[KnowledgeChunk]:
     chunks: list[KnowledgeChunk] = []
     for paper in papers:
-        citation = f"{paper['title']} ({paper.get('published', '')[:10]}), arXiv"
-        chunks.extend(
-            chunk_text(
-                f"# {paper['title']}\n\n{paper['summary']}",
-                corpus="papers",
-                source=paper["url"],
-                citation=citation,
-                tags=["arxiv", "q-fin"],
-                metadata={"provider": "arxiv", "published": paper.get("published")},
-            )
-        )
+        try:
+            chunks.extend(_chunks_for_paper(paper))
+        except Exception as exc:  # defensive: never let one paper abort the job
+            _warn(f"skipping paper during chunking ({exc}): {paper.get('title')!r}")
     return chunks
 
 
+def collect_chunks(*, query: str = "cat:q-fin.*", limit: int | None = None) -> list[KnowledgeChunk]:
+    """Fetch + chunk, degrading to an empty list (with a warning) on network/API failure."""
+
+    try:
+        papers = fetch(query=query, limit=limit or 50)
+    except (arxiv_api.ArxivError, OSError, TimeoutError) as exc:
+        _warn(f"arXiv API unreachable ({exc}); skipping this job")
+        return []
+    return build_chunks(papers)
+
+
 def ingest(*, query: str = "cat:q-fin.*", limit: int = 50, upsert: bool = True) -> int:
-    chunks = build_chunks(fetch(query=query, limit=limit))
+    from .common import upsert_chunks
+
+    chunks = collect_chunks(query=query, limit=limit)
     return upsert_chunks(chunks) if upsert else len(chunks)
 
 
-def _text(entry: ET.Element, name: str) -> str:
-    child = entry.find(f"{ATOM}{name}")
-    return child.text.strip() if child is not None and child.text else ""
+def _result_to_dict(result: arxiv_api.Result) -> dict[str, object]:
+    arxiv_id = result.get_short_id()
+    pdf_url = result.pdf_url or (f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else "")
+    return {
+        "title": " ".join((result.title or "").split()),
+        "abstract": " ".join((result.summary or "").split()),
+        "authors": [author.name for author in result.authors],
+        "published": result.published.isoformat() if result.published else "",
+        "updated": result.updated.isoformat() if result.updated else "",
+        "arxiv_id": arxiv_id,
+        "categories": list(result.categories or []),
+        "source_url": result.entry_id or "",
+        "pdf_url": pdf_url,
+    }
+
+
+def _chunks_for_paper(paper: dict[str, object]) -> list[KnowledgeChunk]:
+    title = str(paper["title"])
+    abstract = str(paper.get("abstract") or "")
+    authors = list(paper.get("authors") or [])
+    arxiv_id = str(paper.get("arxiv_id") or "")
+    year = str(paper.get("published") or "")[:4]
+    tags = ["arxiv", "q-fin", *infer_tags(f"{title}\n{abstract}", TOPIC_VOCAB)]
+
+    metadata = {
+        "provider": "arxiv",
+        "title": title,
+        "authors": authors,
+        "published": paper.get("published"),
+        "updated": paper.get("updated"),
+        "arxiv_id": arxiv_id,
+        "categories": paper.get("categories"),
+        "source_url": paper.get("source_url"),
+        "pdf_url": paper.get("pdf_url"),
+        "source_type": "paper",
+        "citation": _citation(authors, year, title, arxiv_id),
+    }
+    return chunk_text(
+        f"# {title}\n\n{abstract}",
+        corpus="papers",
+        source=str(paper.get("source_url") or arxiv_id or "arxiv"),
+        citation=str(metadata["citation"]),
+        tags=tags,
+        metadata={k: v for k, v in metadata.items() if v not in (None, "", [])},
+    )
+
+
+def _citation(authors: list[str], year: str, title: str, arxiv_id: str) -> str:
+    if authors:
+        who = authors[0] if len(authors) == 1 else f"{authors[0]} et al."
+    else:
+        who = "Unknown"
+    bits = [f"{who} ({year})" if year else who, title.rstrip(".")]
+    tail = f"arXiv:{arxiv_id}" if arxiv_id else "arXiv"
+    return ". ".join([*bits, tail])
+
+
+def _warn(message: str) -> None:
+    print(f"[arxiv] WARNING: {message}", file=sys.stderr)

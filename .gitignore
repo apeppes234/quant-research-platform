@@ -33,6 +33,11 @@ frontend/.env*
 
 # ---- data / artifacts (never commit ingested corpora or backtest dumps) ----
 data/
+# ...but DO track the curated SSRN manifest example + its docs (small, no licensed full text).
+!knowledge/data/
+knowledge/data/*
+!knowledge/data/ssrn_manifest.example.jsonl
+!knowledge/data/README.md
 *.parquet
 *.duckdb
 *.sqlite

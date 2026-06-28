@@ -42,8 +42,16 @@ in docs/14). Frontend lives in [`frontend/`](../frontend/).
    gap (docs/08).
 6. **Chat + steering** (`ChatSteering.tsx`) — the Research Manager conversation; interrupt
    ("stop/redirect" → `user.interrupt`), approve gated tools (`always_ask` → `user.tool_confirmation`).
-7. **Provenance** (`ProvenanceView.tsx`) — which papers / repo notebooks / datasets a design drew on
-   (from `search_knowledge` citations, docs/06).
+   The left sidebar carries two tabs: **Steering** (chat/interrupt/approvals) and **Research**.
+6b. **Research sources** (`ResearchSourceTab.tsx`, in the left sidebar) — an inspectable view of the
+   sources agents actually used, grouped by provider (arXiv / SSRN / QuantResearch / QuantConnect
+   Strategy Library). Each card shows title/citation, provider, source link, the snippet the agent
+   relied on, and metadata badges (corpus, strategy family / asset class / signal type, notebook cell,
+   page). arXiv (and SSRN where a PDF exists) render in an embedded PDF viewer (`PaperPdfViewer.tsx`)
+   with a dropdown to switch between referenced papers; local PDFs are served by the sandboxed
+   `/api/pdfs` route (approved directories only). When no PDF exists it falls back to the source link.
+7. **Provenance** (`ProvenanceView.tsx`) — a compact citation list in the right-hand analysis lane
+   (the Research tab above is the full inspectable viewer; both read the same `provenance[]`, docs/06).
 8. **Report** (`ReportDeliverable.tsx`) — final `report.pdf` status and download link from the session
    Files API.
 

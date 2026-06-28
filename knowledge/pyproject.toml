@@ -5,4 +5,16 @@ description = "Knowledge-corpus ingestion jobs for search_knowledge."
 requires-python = ">=3.11"
 dependencies = [
     "psycopg[binary]>=3.2",
+    "arxiv>=2.1",            # official keyless arXiv API client (paging, retries, rate-limit delay)
 ]
+
+[project.optional-dependencies]
+# Lightweight local-PDF text extraction for the SSRN manifest path (reads local files only).
+pdf = ["pypdf>=4.0"]
+
+[dependency-groups]
+dev = ["pytest>=8", "pypdf>=4.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -481,17 +481,59 @@ def _citations_from_knowledge_result(result: Any) -> list[dict[str, Any]]:
         source = str(item.get("source") or "")
         if not citation and not source:
             continue
+        corpus = str(item.get("corpus") or metadata_map.get("corpus") or "")
+
+        def _field(name: str) -> Any:
+            # prefer a top-level field on the result row, fall back to ingestion metadata
+            return item.get(name) if item.get(name) is not None else metadata_map.get(name)
+
         citations.append(
             {
                 "text": str(item.get("text") or "")[:1200],
                 "source": source,
                 "citation": citation,
-                "corpus": str(item.get("corpus") or metadata_map.get("corpus") or ""),
+                "corpus": corpus,
                 "score": item.get("score"),
+                # Structured fields the Research tab inspects (provenance stays metadata-complete below).
+                "provider": str(_field("provider") or _provider_from_corpus(corpus, source)),
+                "title": _string_or_none(_field("title")),
+                "source_url": _string_or_none(_field("source_url")),
+                "pdf_url": _string_or_none(_field("pdf_url")),
+                "local_pdf_path": _string_or_none(_field("local_pdf_path")),
+                "source_path": _string_or_none(_field("source_path")),
+                "tags": _tag_list(_field("tags")),
+                "page_number": _field("page_number") if _field("page_number") is not None else _field("pageNumber"),
                 "metadata": _plain(metadata),
             }
         )
     return citations
+
+
+def _provider_from_corpus(corpus: str, source: str) -> str:
+    if "arxiv" in source.lower():
+        return "arxiv"
+    if "ssrn" in source.lower():
+        return "ssrn"
+    if corpus == "repo":
+        return "quantresearch_repo"
+    if corpus == "strategy_library":
+        return "quantconnect_strategy_library"
+    return ""
+
+
+def _string_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _tag_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, (list, tuple)):
+        return [str(tag) for tag in value if str(tag).strip()]
+    return []
 
 
 def _criteria_from_raw(raw: Any) -> list[dict[str, Any]]:

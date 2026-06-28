@@ -121,6 +121,13 @@ export type LedgerEntry = {
   path?: string;
 };
 
+export type ProvenanceProvider =
+  | "arxiv"
+  | "ssrn"
+  | "quantresearch_repo"
+  | "quantconnect_strategy_library"
+  | "other";
+
 export type ProvenanceCitation = {
   id: string;
   text: string;
@@ -130,6 +137,19 @@ export type ProvenanceCitation = {
   score?: number;
   metadata?: Record<string, unknown>;
   seenAt: string;
+  // Structured fields used by the Research tab (filled from the result row or its ingestion metadata).
+  provider: ProvenanceProvider;
+  title?: string;
+  sourceUrl?: string;
+  pdfUrl?: string;
+  localPdfPath?: string;
+  sourcePath?: string;
+  tags: string[];
+  pageNumber?: number;
+  threadId?: string;
+  agentName?: string;
+  cellIndex?: number;
+  cellType?: string;
 };
 
 export type SessionState = {
@@ -418,7 +438,7 @@ export function reduce(state: SessionState, e: NormalizedEvent): SessionState {
       return {
         ...state,
         recentEvents,
-        provenance: mergeProvenance(state.provenance, payload),
+        provenance: mergeProvenance(state.provenance, payload, state.threads),
       };
     case "tool.confirmation.requested":
       return {
@@ -752,38 +772,113 @@ function ledgerKey(entry: LedgerEntry): string {
 function mergeProvenance(
   current: ProvenanceCitation[],
   payload: Record<string, unknown>,
+  threads: Record<string, ThreadState>,
 ): ProvenanceCitation[] {
-  const citations = citationsFromPayload(payload.citations);
+  const threadId = stringValue(payload.threadId);
+  const agentName =
+    stringValue(payload.agentName) || threads[threadId]?.agentName || "";
+  const citations = citationsFromPayload(payload.citations, {
+    threadId,
+    agentName,
+  });
   if (citations.length === 0) return current;
   const byId = new Map(current.map((citation) => [citation.id, citation]));
   for (const citation of citations) {
-    byId.set(citation.id, citation);
+    // keep the agent attribution from the first sighting if a later one lacks it
+    const existing = byId.get(citation.id);
+    byId.set(citation.id, {
+      ...citation,
+      agentName: citation.agentName || existing?.agentName,
+      threadId: citation.threadId || existing?.threadId,
+    });
   }
-  return Array.from(byId.values()).slice(-80);
+  return Array.from(byId.values()).slice(-120);
 }
 
-function citationsFromPayload(value: unknown): ProvenanceCitation[] {
+function citationsFromPayload(
+  value: unknown,
+  context: { threadId?: string; agentName?: string },
+): ProvenanceCitation[] {
   if (!Array.isArray(value)) return [];
   const now = new Date().toISOString();
   return value
     .map((item): ProvenanceCitation | null => {
       if (!item || typeof item !== "object") return null;
       const row = item as Record<string, unknown>;
+      const meta = objectValue(row.metadata) ?? {};
+      const pick = (key: string): unknown =>
+        row[key] !== undefined && row[key] !== null ? row[key] : meta[key];
+
       const citation = stringValue(row.citation);
       const source = stringValue(row.source);
       if (!citation && !source) return null;
+      const corpus = stringValue(row.corpus) || stringValue(meta.corpus);
+      const provider = normalizeProvider(
+        stringValue(pick("provider")),
+        corpus,
+        source,
+      );
+
       return {
-        id: `${citation || source}:${stringValue(row.corpus)}`,
-        text: stringValue(row.text),
+        id: `${citation || source}:${corpus}`,
+        text: stringValue(row.text) || stringValue(pick("snippet")),
         source,
         citation,
-        corpus: stringValue(row.corpus),
+        corpus,
         score: numberValue(row.score),
         metadata: objectValue(row.metadata),
         seenAt: now,
+        provider,
+        title: stringValue(pick("title")) || undefined,
+        sourceUrl:
+          stringValue(pick("source_url")) ||
+          (isUrl(source) ? source : undefined),
+        pdfUrl: stringValue(pick("pdf_url")) || undefined,
+        localPdfPath: stringValue(pick("local_pdf_path")) || undefined,
+        sourcePath: stringValue(pick("source_path")) || undefined,
+        tags: stringList(pick("tags")),
+        pageNumber: numberValue(pick("page_number") ?? pick("pageNumber")),
+        threadId: context.threadId || undefined,
+        agentName: context.agentName || undefined,
+        cellIndex: numberValue(meta.cell_index),
+        cellType: stringValue(meta.cell_type) || undefined,
       };
     })
     .filter((item): item is ProvenanceCitation => Boolean(item));
+}
+
+function normalizeProvider(
+  raw: string,
+  corpus: string,
+  source: string,
+): ProvenanceProvider {
+  const value = raw.toLowerCase();
+  if (value.includes("arxiv")) return "arxiv";
+  if (value.includes("ssrn")) return "ssrn";
+  if (value.includes("quantresearch")) return "quantresearch_repo";
+  if (value.includes("quantconnect") || value.includes("strategy_library"))
+    return "quantconnect_strategy_library";
+  // fall back to corpus/source hints
+  const lowerSource = source.toLowerCase();
+  if (lowerSource.includes("arxiv")) return "arxiv";
+  if (lowerSource.includes("ssrn")) return "ssrn";
+  if (corpus === "repo") return "quantresearch_repo";
+  if (corpus === "strategy_library") return "quantconnect_strategy_library";
+  return "other";
+}
+
+function isUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function stringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((tag) => String(tag))
+      .filter((tag) => tag.trim().length > 0);
+  }
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
 }
 
 function stringValue(value: unknown): string {
