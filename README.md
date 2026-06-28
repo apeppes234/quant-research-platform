@@ -1,9 +1,12 @@
 # Quant Research Platform
 
-Quant Research Platform is a Claude-powered research workbench for designing, backtesting, auditing, and
-reporting systematic trading ideas. It is built around one idea: the research process should be observable.
-When the system delegates work, runs a backtest, writes an artifact, grades a strategy, or asks for human
-approval, that event appears on the canvas.
+Quant Research Platform is a Claude-powered research workbench built around **QuantConnect**. QuantConnect
+is the execution and backtesting backbone: agents create QuantConnect projects, write LEAN algorithms,
+compile them, run cloud backtests, and read the resulting charts, orders, insights, and metrics back into
+the app.
+
+The second core idea is observability. When the system delegates work, runs a QuantConnect backtest, writes
+an artifact, grades a strategy, or asks for human approval, that event appears on the canvas.
 
 This is not a trading bot. There is no brokerage integration and no live trading path. The QuantConnect
 tools are used for project/file/compile/backtest workflows only; live-trading tools are intentionally left
@@ -25,6 +28,44 @@ from idea to report:
 The UI is a live projection of the Managed Agents event stream. The graph nodes are agent threads, animated
 edges are delegation/result messages, and artifact chips are files moving across the shared session
 filesystem.
+
+## QuantConnect, Data, And LLM Grounding
+
+QuantConnect is not an optional plugin here; it is the platform the research loop is centered on.
+
+- **Backtest engine:** QuantConnect LEAN runs the algorithms in the cloud.
+- **Market and fundamental data:** the primary backtest data comes from QuantConnect subscriptions,
+  history APIs, and datasets, including point-in-time and survivorship-bias-aware data where QC provides it.
+- **Research workflow:** the Data and Feature agents use QuantConnect-style research patterns, then the
+  Modeling and Backtest agents turn that work into a QuantConnect project.
+- **Tool access:** the system talks to QuantConnect through the official `quantconnect/mcp-server` image,
+  fronted by a bearer-auth proxy. The allowlist includes project, file, compile, backtest, read-results,
+  and QC AI helper tools. Live-trading tools stay disabled.
+
+Other data sources are supporting inputs, not replacements for QuantConnect:
+
+| Source | Used for | Guardrail |
+|---|---|---|
+| QuantConnect | prices, fundamentals, datasets, project compile/backtest/results | core backtest data path |
+| FRED / ALFRED | macro features and vintage-aware economic data | as-of timestamps in `data_manifest.json` |
+| EDGAR | filings filtered by filing date | no future filing leakage |
+| GDELT | news/event context | recorded as external feature provenance |
+| arXiv / SSRN / reference repos | research ideas and citations | grounding only; not raw backtest data |
+| QC Strategy Library | QC-idiomatic strategy examples | retrieved as design patterns with citations |
+
+The LLM is **not fine-tuned by this repo** on private QuantConnect data or the local knowledge base. Claude
+brings its base model capabilities, and this platform gives it runtime context through:
+
+- the agent system prompts and fixed role boundaries;
+- the strategy authoring contract and AST validator;
+- `search_knowledge`, a vector search MCP over papers, notebooks, the QC Strategy Library, and contract
+  material;
+- live tool results from QuantConnect and the PIT data-source MCPs;
+- Managed Agents memory stores for lessons learned and the data-snooping ledger.
+
+In other words, the agents do not simply "remember" what to trade. They retrieve cited research, write a
+contract-constrained QuantConnect algorithm, validate it, compile it, backtest it on QC, and then audit the
+result.
 
 ## How The Agents Work Together
 
