@@ -14,6 +14,72 @@ data — distinct from the *running state* in Managed Agents memory stores (less
 
 Run all: `uv run python -m ingestion.run_all` (or `make ingest`).
 
+Each job is one of three kinds: **automated** (arXiv hits a public API), **local reference** (the
+QuantResearch repo and QC Strategy Library read a directory you clone), or **curated** (SSRN reads a
+manifest you hand-author). All four feed the same `knowledge_chunks` table and share consistent metadata
+(`provider`, `title`, `citation`, `source_url`/`source_path`, `source_type`, `tags`, …). None of them is
+market data — QuantConnect remains the compile/backtest/data system; these corpora are grounding only.
+
+## Common flags (`run_all`)
+
+```bash
+cd knowledge
+# pick jobs individually or together:
+uv run python -m ingestion.run_all --jobs arxiv
+uv run python -m ingestion.run_all --jobs arxiv,quantresearch_repo,strategy_library
+
+# --dry-run: chunk only, no DB writes.  --jsonl-dir: snapshot chunks to <dir>/<job>.jsonl.  --limit N: cap per job.
+uv run python -m ingestion.run_all --jobs arxiv,quantresearch_repo,strategy_library --dry-run --jsonl-dir out
+```
+
+A missing local repo or an unreachable API prints a clear setup/skip message and yields 0 chunks — it
+never crashes the rest of the pipeline. Re-running is safe: every chunk carries a `content_hash`
+(`provider + source + citation + chunk_text`) and the upsert is `ON CONFLICT (content_hash) DO NOTHING`.
+
+## arXiv — automated q-fin feed
+
+Hits arXiv's keyless Atom API (default `cat:q-fin.*`). Pulls title, abstract, authors, published/updated
+dates, arXiv id, categories, abstract URL, and PDF URL into `corpus="papers"` with `provider="arxiv"`.
+Topic tags (`momentum`, `volatility`, `factor`, `options`, `machine-learning`, `mean-reversion`, …) are
+inferred from the title + abstract. Abstract-only ingest is the MVP — PDFs are not downloaded.
+
+```bash
+# default q-fin feed, 50 newest:
+uv run python -m ingestion.run_all --jobs arxiv
+# custom query/limit via the module API:
+uv run python -c "from ingestion import arxiv; print(arxiv.ingest(query='cat:q-fin.PM', limit=20))"
+```
+
+## QuantResearch repo — local notebooks/code
+
+Clone the repo yourself and point `QUANTRESEARCH_REPO_PATH` at it (the job never downloads). Ingests
+`.ipynb` (chunked by cell — code cells stay code, markdown cells stay explanation), `.md`, and `.py` into
+`corpus="repo"` with `provider="quantresearch_repo"`. Tags inferred from path + text (`kalman-filter`,
+`pairs-trading`, `cointegration`, `momentum`, `mean-reversion`, `garch`, `arima`, `hmm`, `regime`,
+`fama-french`, `factor`, `reinforcement-learning`, `var`, `risk`).
+
+```bash
+git clone https://github.com/letianzj/QuantResearch ~/src/QuantResearch
+export QUANTRESEARCH_REPO_PATH=~/src/QuantResearch
+uv run python -m ingestion.run_all --jobs quantresearch_repo --dry-run --jsonl-dir out
+```
+
+## QuantConnect Strategy Library — local implementation patterns
+
+Clone QuantConnect's Tutorials (or any folder of QC examples) and point `STRATEGY_LIBRARY_PATH` at the
+strategy directory. Ingests `.md`, `.py`, `.cs`, `.ipynb`, `.txt` into `corpus="strategy_library"` with
+`provider="quantconnect_strategy_library"`, recording strategy name, language, and inferred
+`strategy_family`. Tags: `momentum`, `mean-reversion`, `pairs-trading`, `factor`, `options`, `futures`,
+`crypto`, `universe-selection`, `risk-management`, `portfolio-construction`, `alpha-model`,
+`execution-model`. Every chunk carries a `disclaimer` — these are **implementation patterns, not
+profitable strategies**; profitability is only ever established by the backtest/risk workflow.
+
+```bash
+git clone https://github.com/QuantConnect/Tutorials ~/src/Tutorials
+export STRATEGY_LIBRARY_PATH="$HOME/src/Tutorials/04 Strategy Library"   # or QUANTCONNECT_STRATEGY_LIBRARY_PATH
+uv run python -m ingestion.run_all --jobs strategy_library --dry-run --jsonl-dir out
+```
+
 ## SSRN: curated manifest, not a scraper
 
 SSRN is **research grounding** (idea/citation material for the Paper Agent), **not** market data, and is

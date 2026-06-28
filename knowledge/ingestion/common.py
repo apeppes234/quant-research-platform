@@ -112,7 +112,14 @@ def chunk_text(
     return chunks
 
 
-def notebook_cell_chunks(path: Path, *, corpus: str = "repo", tags: list[str] | None = None) -> list[KnowledgeChunk]:
+def notebook_cell_chunks(
+    path: Path,
+    *,
+    corpus: str = "repo",
+    tags: list[str] | None = None,
+    citation: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> list[KnowledgeChunk]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     cells = payload.get("cells", [])
     chunks: list[KnowledgeChunk] = []
@@ -121,18 +128,44 @@ def notebook_cell_chunks(path: Path, *, corpus: str = "repo", tags: list[str] | 
         if not source.strip():
             continue
         cell_type = str(cell.get("cell_type", "cell"))
-        citation = f"{path.name} cell {index + 1}"
+        cite = f"{citation or path.name} cell {index + 1}"
+        cell_meta: dict[str, object] = {
+            **(metadata or {}),
+            "cell_index": index,
+            "cell_type": cell_type,
+        }
+        if cell_type == "code":
+            cell_meta.setdefault("language", "python")
+            cell_meta.setdefault("source_type", "code")
+        else:
+            cell_meta.setdefault("language", "markdown")
+            cell_meta.setdefault("source_type", "explanation")
         chunks.append(
             KnowledgeChunk(
                 corpus=corpus,
                 source=str(path),
-                citation=citation,
+                citation=cite,
                 text=source.strip(),
                 tags=[*(tags or []), cell_type],
-                metadata={"cell_index": index, "cell_type": cell_type},
+                metadata=cell_meta,
             )
         )
     return chunks
+
+
+def infer_tags(text: str, vocab: dict[str, tuple[str, ...]]) -> list[str]:
+    """Return tags from `vocab` whose keyword substrings appear in `text` (case-insensitive).
+
+    `vocab` maps a canonical tag to the substrings that imply it, e.g.
+    {"machine-learning": ("neural", "deep learning", "lstm")}. Order is preserved and stable.
+    """
+
+    lower = text.lower()
+    found: list[str] = []
+    for tag, needles in vocab.items():
+        if any(needle in lower for needle in needles) and tag not in found:
+            found.append(tag)
+    return found
 
 
 def embed_text(text: str) -> list[float]:

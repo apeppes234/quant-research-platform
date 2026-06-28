@@ -202,19 +202,25 @@ def build_chunks(rows: list[dict], *, manifest_dir: Path | None = None) -> list[
     return dedupe_chunks(chunks)
 
 
-def ingest(*, manifest: str | None = None, limit: int | None = None, upsert: bool = True) -> int:
+def collect_chunks(*, manifest: str | None = None, limit: int | None = None) -> list[KnowledgeChunk]:
+    """Resolve the manifest and build chunks, returning [] (with a warning) when unavailable."""
+
     manifest_value = manifest or os.getenv("SSRN_PAPERS_JSONL", "")
     if not manifest_value:
         _warn("no manifest configured (set SSRN_PAPERS_JSONL or pass manifest=...); nothing to ingest")
-        return 0
+        return []
     manifest_path = Path(manifest_value)
     if not manifest_path.is_file():
         _warn(f"manifest not found: {manifest_path}; nothing to ingest")
-        return 0
+        return []
     rows = load_manifest(manifest_path)
     if limit:
         rows = rows[:limit]
-    chunks = build_chunks(rows, manifest_dir=manifest_path.resolve().parent)
+    return build_chunks(rows, manifest_dir=manifest_path.resolve().parent)
+
+
+def ingest(*, manifest: str | None = None, limit: int | None = None, upsert: bool = True) -> int:
+    chunks = collect_chunks(manifest=manifest, limit=limit)
     return upsert_chunks(chunks) if upsert else len(chunks)
 
 
