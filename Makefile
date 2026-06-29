@@ -11,7 +11,7 @@ help:                ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-# ---- Control plane (Anthropic Managed Agents, via the `ant` CLI) ------------
+# ---- Control plane (Anthropic Managed Agents, via `ant` or SDK fallback) ----
 agents-apply:        ## Create/update all agents + environment from agents/*.yaml (see agents/scripts/apply.sh)
 	bash agents/scripts/apply.sh
 

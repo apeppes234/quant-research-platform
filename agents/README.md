@@ -1,8 +1,9 @@
 # agents/ — Control plane (version-controlled agent + environment definitions)
 
-These YAML files **are** the agents. They're applied to Anthropic via the `ant` CLI (`make agents-apply`),
-which creates/updates each agent and prints its ID. **Create once, reference by ID** — the orchestrator
-never calls `agents.create()` in the request path (docs/01, docs/02).
+These YAML files **are** the agents. They're applied to Anthropic via `make agents-apply`, using the `ant`
+CLI when available or the Anthropic Python SDK fallback through `uv`. The apply step creates/updates each
+agent and writes its ID into `.env`. **Create once, reference by ID** — the orchestrator never calls
+`agents.create()` in the request path (docs/01, docs/02).
 
 ## Files
 
@@ -21,6 +22,7 @@ environments/
   cloud.environment.yaml         # limited networking + allow_mcp_servers
 scripts/
   apply.sh                       # create specialists -> capture IDs -> create/update Manager w/ roster
+  apply_with_sdk.py              # SDK fallback used when ant is not installed
 ```
 
 ## Apply order (handled by `scripts/apply.sh`)
