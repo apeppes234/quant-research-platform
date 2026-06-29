@@ -361,6 +361,11 @@ export function reduce(state: SessionState, e: NormalizedEvent): SessionState {
       return {
         ...state,
         recentEvents,
+        provenance: mergeProvenance(
+          state.provenance,
+          payload,
+          state.threads,
+        ),
         chat: text
           ? [...state.chat, { id: e.id, role: "agent" as const, text }].slice(
               -40,

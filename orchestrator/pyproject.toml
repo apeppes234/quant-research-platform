@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     "httpx>=0.27",
     "psycopg[binary]>=3.2",     # orchestrator state (optional in early phases)
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]

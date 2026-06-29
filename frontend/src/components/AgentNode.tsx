@@ -22,7 +22,9 @@ export function AgentNode({ data }: NodeProps<ThreadState>) {
         <div className="agent-node__badge">{data.badge}</div>
       ) : null}
       {data.thinking ? (
-        <div className="agent-node__thinking">thinking</div>
+        <div className="agent-node__thinking">
+          <span className="shimmer">{data.thinking}</span>
+        </div>
       ) : null}
       {data.tokens > 0 ? (
         <div className="agent-node__tokens">{data.tokens} tokens</div>

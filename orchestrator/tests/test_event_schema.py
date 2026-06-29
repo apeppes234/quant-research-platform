@@ -3,6 +3,15 @@ import json
 from app.events.schema import is_terminal_event, normalize_event
 
 
+class _SdkTextBlock:
+    def __init__(self, text: str):
+        self.text = text
+        self.type = "text"
+
+    def model_dump(self):
+        return {"text": self.text, "type": self.type}
+
+
 def test_thread_created_maps_to_node_add():
     event = {
         "id": "evt_1",
@@ -153,6 +162,69 @@ def test_search_knowledge_provenance_preserves_structured_metadata():
     assert citation["metadata"]["title"] == "Time Series Momentum"
 
 
+def test_arxiv_mcp_result_maps_to_provenance():
+    event = {
+        "id": "evt_arxiv",
+        "type": "agent.mcp_tool_result",
+        "session_thread_id": "thread_paper",
+        "name": "arxiv_qfin_papers",
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "source": "arXiv q-fin",
+                        "as_of": "2026-06-28T00:00:00Z",
+                        "citation": "arXiv q-fin search 'momentum' as of 2026-06-28",
+                        "papers": [
+                            {
+                                "title": "Macro Regime Factor Timing",
+                                "summary": "A paper about factor timing and macro regimes.",
+                                "published": "2025-10-02T00:00:00Z",
+                                "url": "https://arxiv.org/abs/2510.12345",
+                            }
+                        ],
+                    }
+                ),
+            }
+        ],
+    }
+
+    normalized = normalize_event(event)
+
+    assert normalized["kind"] == "provenance.add"
+    citation = normalized["payload"]["citations"][0]
+    assert citation["provider"] == "arxiv"
+    assert citation["title"] == "Macro Regime Factor Timing"
+    assert citation["source_url"] == "https://arxiv.org/abs/2510.12345"
+    assert citation["pdf_url"] == "https://arxiv.org/pdf/2510.12345"
+    assert citation["metadata"]["as_of"] == "2026-06-28T00:00:00Z"
+
+
+def test_agent_message_with_arxiv_link_keeps_chat_and_attaches_provenance():
+    event = {
+        "id": "evt_agent_arxiv_text",
+        "type": "agent.message",
+        "session_thread_id": "thread_paper",
+        "content": [
+            {
+                "type": "text",
+                "text": "The closest source is https://arxiv.org/abs/2401.01234 for regime-aware timing.",
+            }
+        ],
+    }
+
+    normalized = normalize_event(event)
+
+    assert normalized["kind"] == "agent.text"
+    assert "closest source" in normalized["payload"]["text"]
+    citation = normalized["payload"]["citations"][0]
+    assert citation["provider"] == "arxiv"
+    assert citation["citation"] == "arXiv:2401.01234"
+    assert citation["source_url"] == "https://arxiv.org/abs/2401.01234"
+    assert citation["pdf_url"] == "https://arxiv.org/pdf/2401.01234"
+
+
 def test_snooping_ledger_write_maps_to_ledger_entry():
     event = {
         "id": "evt_8",
@@ -224,3 +296,17 @@ def test_outcome_end_includes_default_criteria():
     assert normalized["payload"]["iteration"] == 2
     assert len(normalized["payload"]["criteria"]) == 5
     assert normalized["payload"]["criteria"][0]["status"] == "fail"
+
+
+def test_sdk_text_block_content_renders_plain_text():
+    event = {
+        "id": "evt_text",
+        "type": "agent.message",
+        "session_thread_id": "thread_manager",
+        "content": [_SdkTextBlock("hello from sdk block")],
+    }
+
+    normalized = normalize_event(event)
+
+    assert normalized["kind"] == "agent.text"
+    assert normalized["payload"]["text"] == "hello from sdk block"

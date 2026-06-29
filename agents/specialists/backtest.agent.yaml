@@ -31,4 +31,4 @@ tools:
       - { name: read_optimization, enabled: true }
       - { name: list_optimizations, enabled: true }
       - { name: estimate_optimization_time, enabled: true }
-      - { name: create_optimization, enabled: true, permission_policy: always_ask }
+      - { name: create_optimization, enabled: true, permission_policy: { type: always_ask } }

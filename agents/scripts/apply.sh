@@ -4,9 +4,10 @@
 # eight specialists, then create/reuse the Research Manager with its full
 # multiagent coordinator roster filled in.
 #
-# The ant CLI supports versioned agents. To keep this script deterministic even
-# before we track versions, it stores a rendered-YAML SHA next to each ID. If a
-# rendered YAML changes, it creates a replacement and updates .env.
+# The ant CLI supports versioned agents. When ant is unavailable, this script
+# falls back to the Anthropic Python SDK. To keep this deterministic even before
+# we track versions, it stores a rendered-YAML SHA next to each ID. If a rendered
+# YAML changes, it creates a replacement and updates .env.
 # ============================================================================
 set -euo pipefail
 
@@ -15,6 +16,7 @@ AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$AGENTS_DIR/.." && pwd)"
 ENV_FILE="$REPO_ROOT/.env"
 DRY_RUN="${1:-}"
+ANT_CREATE_MODE=""
 
 cd "$REPO_ROOT"
 
@@ -31,12 +33,15 @@ Usage:
 
 Environment:
   ANTHROPIC_API_KEY       required by ant for real applies
-  MCP_KNOWLEDGE_URL       public HTTPS URL for the search_knowledge MCP
-  MCP_QUANTCONNECT_URL    public HTTPS URL for the QC MCP auth proxy
-  MCP_FRED_URL            public HTTPS URL for the FRED/ALFRED MCP auth proxy
-  MCP_EDGAR_URL           public HTTPS URL for the EDGAR MCP auth proxy
-  MCP_GDELT_URL           public HTTPS URL for the GDELT MCP auth proxy
-  MCP_ARXIV_URL           public HTTPS URL for the arXiv MCP auth proxy
+  MCP_KNOWLEDGE_URL       public HTTPS URL for the search_knowledge MCP (optional until that tool is used)
+  MCP_QUANTCONNECT_URL    public HTTPS URL for the QC MCP auth proxy (optional until QC work is enabled)
+  MCP_FRED_URL            public HTTPS URL for the FRED/ALFRED MCP auth proxy (optional)
+  MCP_EDGAR_URL           public HTTPS URL for the EDGAR MCP auth proxy (optional)
+  MCP_GDELT_URL           public HTTPS URL for the GDELT MCP auth proxy (optional)
+  MCP_ARXIV_URL           public HTTPS URL for the arXiv MCP auth proxy (optional until that tool is used)
+
+Blank MCP URLs are rendered as disabled placeholders so agents can be created before every service exists.
+Those tools will fail if invoked; set the real public HTTPS URL and rerun this script to replace agents.
 
 Outputs:
   MANAGED_ENVIRONMENT_ID, all specialist *_AGENT_ID values, and
@@ -57,12 +62,58 @@ render_yaml() {
   perl -pe 's/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/defined $ENV{$1} ? $ENV{$1} : ""/ge' "$1"
 }
 
+optional_mcp_url() {
+  local name="$1"
+  local slug="$2"
+  local value="${!name:-}"
+  if [ -n "$value" ]; then
+    return
+  fi
+  local fallback="${DISABLED_MCP_URL_BASE:-https://disabled.invalid}/$slug/mcp"
+  echo "Warning: $name is not set; rendering disabled MCP placeholder $fallback" >&2
+  export "$name=$fallback"
+}
+
+prepare_mcp_urls() {
+  optional_mcp_url MCP_KNOWLEDGE_URL "knowledge"
+  optional_mcp_url MCP_QUANTCONNECT_URL "quantconnect"
+  optional_mcp_url MCP_FRED_URL "fred"
+  optional_mcp_url MCP_EDGAR_URL "edgar"
+  optional_mcp_url MCP_GDELT_URL "gdelt"
+  optional_mcp_url MCP_ARXIV_URL "arxiv"
+}
+
 render_to_temp() {
   local path="$1"
   local rendered
   rendered="$(mktemp)"
   render_yaml "$path" > "$rendered"
   echo "$rendered"
+}
+
+detect_create_mode() {
+  if command -v ant >/dev/null 2>&1; then
+    ANT_CREATE_MODE="ant"
+  elif command -v uv >/dev/null 2>&1; then
+    ANT_CREATE_MODE="sdk"
+  else
+    echo "Neither the ant CLI nor uv are installed; cannot apply Managed Agents control-plane YAML." >&2
+    exit 127
+  fi
+}
+
+create_resource() {
+  local kind="$1"
+  local rendered="$2"
+  if [ "$ANT_CREATE_MODE" = "ant" ]; then
+    if [ "$kind" = "environment" ]; then
+      ant beta:environments create --transform id -r < "$rendered"
+    else
+      ant beta:agents create --transform id -r < "$rendered"
+    fi
+  else
+    (cd "$REPO_ROOT/orchestrator" && uv run python "$REPO_ROOT/agents/scripts/apply_with_sdk.py" "$kind" "$rendered")
+  fi
 }
 
 set_env() {
@@ -110,7 +161,7 @@ create_or_reuse_agent() {
   fi
 
   local new_id
-  new_id="$(ant beta:agents create --transform id -r < "$rendered")"
+  new_id="$(create_resource agent "$rendered")"
   rm -f "$rendered"
   set_env "$env_key" "$new_id"
   set_env "$sha_key" "$sha"
@@ -124,6 +175,7 @@ if [ "$DRY_RUN" = "--help" ] || [ "$DRY_RUN" = "-h" ]; then
 fi
 
 if [ "$DRY_RUN" = "--dry-run" ]; then
+  prepare_mcp_urls
   echo "--- agents/environments/cloud.environment.yaml"
   cat "$AGENTS_DIR/environments/cloud.environment.yaml"
   export PAPER_AGENT_ID="${PAPER_AGENT_ID:-agent_paper_dryrun}"
@@ -155,26 +207,20 @@ if [ "$DRY_RUN" = "--dry-run" ]; then
   exit 0
 fi
 
-if ! command -v ant >/dev/null 2>&1; then
-  echo "The ant CLI is not installed or is not on PATH; cannot apply Managed Agents control-plane YAML." >&2
-  exit 127
-fi
-
 require_var ANTHROPIC_API_KEY
-require_var MCP_KNOWLEDGE_URL
-require_var MCP_QUANTCONNECT_URL
-require_var MCP_FRED_URL
-require_var MCP_EDGAR_URL
-require_var MCP_GDELT_URL
-require_var MCP_ARXIV_URL
+prepare_mcp_urls
+detect_create_mode
+echo "Using Managed Agents control-plane apply mode: $ANT_CREATE_MODE"
 
 if [ -n "${MANAGED_ENVIRONMENT_ID:-}" ]; then
   echo "MANAGED_ENVIRONMENT_ID already set in .env; reusing $MANAGED_ENVIRONMENT_ID"
 else
   echo "Creating Managed Agents cloud environment..."
+  rendered_env="$(render_to_temp "$AGENTS_DIR/environments/cloud.environment.yaml")"
   MANAGED_ENVIRONMENT_ID="$(
-    ant beta:environments create --transform id -r < "$AGENTS_DIR/environments/cloud.environment.yaml"
+    create_resource environment "$rendered_env"
   )"
+  rm -f "$rendered_env"
   set_env MANAGED_ENVIRONMENT_ID "$MANAGED_ENVIRONMENT_ID"
   export MANAGED_ENVIRONMENT_ID
 fi

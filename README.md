@@ -143,8 +143,8 @@ Install:
 - `uv`
 - the Anthropic `ant` CLI
 - an Anthropic API key with Managed Agents access
-- QuantConnect user ID and API token
-- a public HTTPS tunnel for MCP endpoints during local development
+- a public HTTPS tunnel for any MCP endpoints you want the hosted agents to use during local development
+- QuantConnect user ID and API token only when you are ready to run QC compile/backtest work
 
 ### 2. Create your environment file
 
@@ -156,24 +156,30 @@ Fill in at least:
 
 ```text
 ANTHROPIC_API_KEY=
-QUANTCONNECT_USER_ID=
-QUANTCONNECT_API_TOKEN=
-QC_MCP_INBOUND_BEARER=
-KNOWLEDGE_MCP_INBOUND_BEARER=
-FRED_MCP_INBOUND_BEARER=
-EDGAR_MCP_INBOUND_BEARER=
-GDELT_MCP_INBOUND_BEARER=
-ARXIV_MCP_INBOUND_BEARER=
-MCP_KNOWLEDGE_URL=
-MCP_QUANTCONNECT_URL=
-MCP_FRED_URL=
-MCP_EDGAR_URL=
-MCP_GDELT_URL=
-MCP_ARXIV_URL=
 ```
 
 Hosted Managed Agents must be able to reach MCP servers at public HTTPS URLs. Local `localhost` MCP URLs
-will work for your browser, but not for the hosted agent containers.
+will work for your browser, but not for the hosted agent containers. Blank MCP URLs are allowed while you
+bring the system up; `make agents-apply` renders disabled placeholders for missing MCP servers. Those tools
+will fail if invoked until you set the real URL and matching inbound bearer.
+
+For arXiv/knowledge research before QuantConnect, fill these when your public MCP wrappers are available:
+
+```text
+MCP_KNOWLEDGE_URL=
+KNOWLEDGE_MCP_INBOUND_BEARER=
+MCP_ARXIV_URL=
+ARXIV_MCP_INBOUND_BEARER=
+```
+
+Leave these blank until your QuantConnect MCP is ready:
+
+```text
+MCP_QUANTCONNECT_URL=
+QC_MCP_INBOUND_BEARER=
+QUANTCONNECT_USER_ID=
+QUANTCONNECT_API_TOKEN=
+```
 
 ### 3. Apply the agent control plane
 

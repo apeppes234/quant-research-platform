@@ -35,6 +35,10 @@ scripts/
 
 - `${VAR}` placeholders are filled by `apply.sh` from `.env` / captured IDs. The raw YAML is **not** valid
   to apply as-is until those are substituted.
+- Blank MCP URL placeholders are allowed during early setup. `apply.sh` renders missing MCP URLs as
+  `https://disabled.invalid/...` so the control plane can be created before every MCP exists. The
+  corresponding tool will fail if invoked; set the real public HTTPS URL and rerun `make agents-apply` to
+  create replacement agents.
 - MCP servers are declared `{type:url, name, url}` with **no auth** (auth = vaults, attached per session by
   the orchestrator — docs/12).
 - The `mcp_toolset` allowlist pattern (`default_config:{enabled:false}` + per-tool `enabled:true`) is how

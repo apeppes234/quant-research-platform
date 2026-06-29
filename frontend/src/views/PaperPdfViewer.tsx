@@ -13,6 +13,10 @@ type Props = {
  */
 export function pdfHrefFor(citation: ProvenanceCitation | null): string | null {
   if (!citation) return null;
+  const arxivPdfUrl = arxivPdfUrlFor(citation);
+  if (arxivPdfUrl) {
+    return `/api/pdfs/arxiv?url=${encodeURIComponent(arxivPdfUrl)}`;
+  }
   if (citation.pdfUrl && /^https?:\/\//i.test(citation.pdfUrl)) {
     return citation.pdfUrl;
   }
@@ -73,6 +77,17 @@ export function PaperPdfViewer({ citation }: Props) {
           <ExternalLinkIcon data-icon="inline-start" aria-hidden />
           New tab
         </a>
+        {sourcePage && /^https?:\/\//i.test(sourcePage) ? (
+          <a
+            className="pdf-viewer__link"
+            href={sourcePage}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <ExternalLinkIcon data-icon="inline-start" aria-hidden />
+            Source
+          </a>
+        ) : null}
       </div>
       <object
         className="pdf-viewer__frame"
@@ -95,4 +110,48 @@ export function PaperPdfViewer({ citation }: Props) {
       </object>
     </div>
   );
+}
+
+function arxivPdfUrlFor(citation: ProvenanceCitation): string | null {
+  if (citation.provider !== "arxiv") return null;
+  for (const value of [citation.pdfUrl, citation.sourceUrl, citation.source]) {
+    const normalized = normalizeArxivPdfUrl(value);
+    if (normalized) return normalized;
+  }
+
+  const arxivId =
+    metadataString(citation.metadata?.arxiv_id) ||
+    arxivIdFromText(citation.citation) ||
+    arxivIdFromText(citation.source);
+  return arxivId ? `https://arxiv.org/pdf/${arxivId}` : null;
+}
+
+function normalizeArxivPdfUrl(value: string | undefined): string | null {
+  if (!value || !/^https?:\/\//i.test(value)) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (!/(^|\.)arxiv\.org$/i.test(url.hostname)) return null;
+  if (url.pathname.startsWith("/abs/")) {
+    return `https://arxiv.org/pdf/${url.pathname.slice("/abs/".length)}`;
+  }
+  if (url.pathname.startsWith("/pdf/")) {
+    return `https://arxiv.org${url.pathname}`;
+  }
+  return null;
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function arxivIdFromText(value: string | undefined): string | null {
+  if (!value) return null;
+  const match = value.match(
+    /(?:arxiv:\s*)?([a-z-]+(?:\.[A-Z]{2})?\/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?/i,
+  );
+  return match?.[0].replace(/^arxiv:\s*/i, "") ?? null;
 }

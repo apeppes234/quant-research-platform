@@ -17,6 +17,17 @@ QC_RESULT_TOOLS = {
     "read_backtest_insights",
 }
 KNOWLEDGE_RESULT_TOOLS = {"search_knowledge"}
+ARXIV_TOOL_PATTERN = re.compile(r"arxiv", re.IGNORECASE)
+ARXIV_URL_PATTERN = re.compile(
+    r"https?://(?:www\.)?arxiv\.org/(?:abs|pdf)/"
+    r"([A-Za-z\-]+(?:\.[A-Z]{2})?/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?(?:\.pdf)?"
+    r"(?:[?#][^\s)\]}>,;]*)?",
+    re.IGNORECASE,
+)
+ARXIV_ID_PATTERN = re.compile(
+    r"\barxiv:\s*([A-Za-z\-]+(?:\.[A-Z]{2})?/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?\b",
+    re.IGNORECASE,
+)
 
 LOCAL_FILE_WRITE_TOOL_PARTS = ("write", "edit")
 FILE_BUS_PATH_PATTERN = re.compile(
@@ -154,6 +165,19 @@ def normalize_event(raw: Any) -> dict[str, Any] | None:
                 citations=_citations_from_knowledge_result(result),
                 result=result,
             )
+        if event_type == "agent.mcp_tool_result" and _is_arxiv_tool(tool):
+            result = _tool_result_payload(raw)
+            citations = _citations_from_arxiv_result(result)
+            if citations:
+                return _event(
+                    base,
+                    "provenance.add",
+                    threadId=_get(raw, "session_thread_id", "thread_id"),
+                    tool=tool,
+                    label=_tool_label(event_type, tool, active=False),
+                    citations=citations,
+                    result=result,
+                )
         if event_type == "agent.mcp_tool_result" and tool in QC_RESULT_TOOLS:
             return _event(
                 base,
@@ -172,11 +196,13 @@ def normalize_event(raw: Any) -> dict[str, Any] | None:
         )
 
     if event_type == "agent.message":
+        text = _text_from_content(_get(raw, "content"))
         return _event(
             base,
             "agent.text",
             threadId=_get(raw, "session_thread_id", "thread_id"),
-            text=_text_from_content(_get(raw, "content")),
+            text=text,
+            citations=_citations_from_arxiv_text(text),
         )
 
     if event_type == "agent.thinking":
@@ -308,6 +334,8 @@ def _text_from_content(content: Any) -> str:
         return ""
     if isinstance(content, str):
         return content
+    if hasattr(content, "model_dump") or hasattr(content, "dict"):
+        return _text_from_content(_plain(content))
     if isinstance(content, Mapping):
         return str(content.get("text") or content.get("content") or "")
     if isinstance(content, list):
@@ -507,6 +535,185 @@ def _citations_from_knowledge_result(result: Any) -> list[dict[str, Any]]:
             }
         )
     return citations
+
+
+def _is_arxiv_tool(tool: Any) -> bool:
+    return bool(ARXIV_TOOL_PATTERN.search(str(tool or "")))
+
+
+def _citations_from_arxiv_result(result: Any) -> list[dict[str, Any]]:
+    rows: Any = result
+    root: Mapping[str, Any] = {}
+    if isinstance(result, Mapping):
+        root = result
+        rows = (
+            result.get("papers")
+            or result.get("results")
+            or result.get("items")
+            or []
+        )
+    if not isinstance(rows, list):
+        return []
+
+    citations: list[dict[str, Any]] = []
+    for item in rows:
+        if not isinstance(item, Mapping):
+            continue
+        metadata = item.get("metadata")
+        metadata_map = metadata if isinstance(metadata, Mapping) else {}
+
+        def _field(*names: str) -> Any:
+            for name in names:
+                if item.get(name) is not None:
+                    return item.get(name)
+                if metadata_map.get(name) is not None:
+                    return metadata_map.get(name)
+            return None
+
+        title = _string_or_none(_field("title")) or "arXiv paper"
+        source_url = _string_or_none(
+            _field("url", "source_url", "entry_id", "source")
+        )
+        pdf_url = _string_or_none(_field("pdf_url")) or _arxiv_pdf_url(source_url)
+        arxiv_id = (
+            _string_or_none(_field("arxiv_id"))
+            or _arxiv_id_from_text(source_url)
+            or _arxiv_id_from_text(pdf_url)
+            or _arxiv_id_from_text(str(item.get("citation") or ""))
+        )
+        if not source_url and arxiv_id:
+            source_url = f"https://arxiv.org/abs/{arxiv_id}"
+        if not pdf_url and arxiv_id:
+            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
+        if not source_url and not pdf_url:
+            continue
+
+        published = _string_or_none(_field("published", "published_at", "submitted"))
+        year = published[:4] if published else ""
+        citation = _string_or_none(_field("citation"))
+        if citation is None:
+            suffix = f"arXiv:{arxiv_id}" if arxiv_id else "arXiv"
+            citation = f"{title}{f' ({year})' if year else ''}, {suffix}"
+
+        merged_metadata = {
+            **_plain(metadata_map),
+            "provider": "arxiv",
+            "title": title,
+            "source_url": source_url,
+            "pdf_url": pdf_url,
+            "arxiv_id": arxiv_id,
+            "published": published,
+            "as_of": root.get("as_of"),
+            "tool_citation": root.get("citation"),
+        }
+        citations.append(
+            {
+                "text": str(_field("summary", "abstract", "text") or "")[:1200],
+                "source": source_url or pdf_url or "arxiv",
+                "citation": citation,
+                "corpus": "papers",
+                "score": item.get("score"),
+                "provider": "arxiv",
+                "title": title,
+                "source_url": source_url,
+                "pdf_url": pdf_url,
+                "tags": _tag_list(_field("tags")) or ["arxiv", "q-fin"],
+                "metadata": merged_metadata,
+            }
+        )
+    return citations
+
+
+def _citations_from_arxiv_text(text: str) -> list[dict[str, Any]]:
+    if not text:
+        return []
+
+    seen: set[str] = set()
+    citations: list[dict[str, Any]] = []
+    for match in ARXIV_URL_PATTERN.finditer(text):
+        raw_url = match.group(0).rstrip(".,;:")
+        arxiv_id = _arxiv_id_from_text(raw_url) or match.group(1)
+        if not arxiv_id or arxiv_id in seen:
+            continue
+        seen.add(arxiv_id)
+        source_url = _arxiv_abs_url(arxiv_id, raw_url)
+        citations.append(
+            _citation_from_arxiv_mention(arxiv_id, source_url, text, match.start())
+        )
+
+    for match in ARXIV_ID_PATTERN.finditer(text):
+        arxiv_id = match.group(1)
+        if arxiv_id in seen:
+            continue
+        seen.add(arxiv_id)
+        source_url = f"https://arxiv.org/abs/{arxiv_id}"
+        citations.append(
+            _citation_from_arxiv_mention(arxiv_id, source_url, text, match.start())
+        )
+
+    return citations
+
+
+def _citation_from_arxiv_mention(
+    arxiv_id: str,
+    source_url: str,
+    text: str,
+    offset: int,
+) -> dict[str, Any]:
+    snippet = _surrounding_sentence(text, offset)
+    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
+    return {
+        "text": snippet[:1200],
+        "source": source_url,
+        "citation": f"arXiv:{arxiv_id}",
+        "corpus": "papers",
+        "provider": "arxiv",
+        "title": f"arXiv:{arxiv_id}",
+        "source_url": source_url,
+        "pdf_url": pdf_url,
+        "tags": ["arxiv"],
+        "metadata": {
+            "provider": "arxiv",
+            "arxiv_id": arxiv_id,
+            "source_url": source_url,
+            "pdf_url": pdf_url,
+            "source_type": "agent_text",
+        },
+    }
+
+
+def _surrounding_sentence(text: str, offset: int) -> str:
+    start = max(text.rfind("\n", 0, offset), text.rfind(". ", 0, offset))
+    end_candidates = [
+        pos
+        for pos in (text.find("\n", offset), text.find(". ", offset))
+        if pos != -1
+    ]
+    end = min(end_candidates) if end_candidates else len(text)
+    return text[start + 1 : end].strip()
+
+
+def _arxiv_abs_url(arxiv_id: str, url: str) -> str:
+    if "/abs/" in url:
+        return url.split("?", 1)[0].split("#", 1)[0].removesuffix(".pdf")
+    return f"https://arxiv.org/abs/{arxiv_id}"
+
+
+def _arxiv_pdf_url(value: str | None) -> str | None:
+    arxiv_id = _arxiv_id_from_text(value)
+    return f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else None
+
+
+def _arxiv_id_from_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    url_match = ARXIV_URL_PATTERN.search(value)
+    if url_match:
+        return url_match.group(1)
+    id_match = ARXIV_ID_PATTERN.search(value)
+    if id_match:
+        return id_match.group(1)
+    return None
 
 
 def _provider_from_corpus(corpus: str, source: str) -> str:

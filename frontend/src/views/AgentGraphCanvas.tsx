@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
   type Edge,
   type Node,
+  type ReactFlowInstance,
 } from "reactflow";
 import { AgentNode } from "../components/AgentNode";
 import { DelegationEdge } from "../components/DelegationEdge";
@@ -21,13 +22,23 @@ export function AgentGraphCanvas() {
   const graphEdges = useSessionStore((state) => state.edges);
   const artifacts = useSessionStore((state) => Object.values(state.artifacts));
   const now = useNow();
+  const flowRef = useRef<ReactFlowInstance | null>(null);
+
+  // Re-fit the viewport whenever an agent is added so the whole graph stays
+  // framed (nodes stream in over time and aren't measured at first fit).
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      flowRef.current?.fitView({ padding: 0.18, duration: 350 });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [threads.length]);
 
   const nodes: Node<ThreadState>[] = useMemo(
     () =>
       threads.map((thread, index) => ({
         id: thread.threadId,
         type: "agent",
-        position: positionFor(index),
+        position: positionFor(thread, index),
         data: thread,
       })),
     [threads],
@@ -83,8 +94,11 @@ export function AgentGraphCanvas() {
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        onInit={(instance) => {
+          flowRef.current = instance;
+        }}
         fitView
-        minZoom={0.4}
+        minZoom={0.3}
         maxZoom={1.6}
       >
         <Background color="var(--border)" gap={22} size={1} />
@@ -94,10 +108,27 @@ export function AgentGraphCanvas() {
   );
 }
 
-function positionFor(index: number) {
-  const column = index % 3;
-  const row = Math.floor(index / 3);
-  return { x: 80 + column * 280, y: 80 + row * 170 };
+// Left→right layered layout that mirrors the workflow: the Manager fans out to
+// the parallel agents, then the dependent pipeline runs across one row.
+const LAYOUT: Array<[RegExp, { x: number; y: number }]> = [
+  [/manager/i, { x: 0, y: 250 }],
+  [/market/i, { x: 380, y: 20 }],
+  [/paper/i, { x: 380, y: 260 }],
+  [/data/i, { x: 380, y: 500 }],
+  [/feature/i, { x: 740, y: 500 }],
+  [/model/i, { x: 1100, y: 500 }],
+  [/backtest/i, { x: 1460, y: 500 }],
+  [/risk|audit/i, { x: 1820, y: 500 }],
+  [/report/i, { x: 1820, y: 740 }],
+];
+
+function positionFor(thread: ThreadState, index: number) {
+  for (const [pattern, position] of LAYOUT) {
+    if (pattern.test(thread.agentName)) return position;
+  }
+  const column = index % 4;
+  const row = Math.floor(index / 4);
+  return { x: column * 360, y: row * 240 };
 }
 
 function useNow() {

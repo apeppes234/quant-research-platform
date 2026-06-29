@@ -44,9 +44,16 @@ class ManagedAgentsClient:
         self._require_sdk()
         send = self.raw.beta.sessions.events.send
         try:
-            return send(session_id=session_id, event=event)
+            return send(
+                session_id=session_id,
+                events=[event],
+                betas=["managed-agents-2026-04-01"],
+            )
         except TypeError:
-            return send(session_id=session_id, **event)
+            try:
+                return send(session_id=session_id, event=event)
+            except TypeError:
+                return send(session_id=session_id, **event)
 
     def create_static_bearer_vault(
         self,
