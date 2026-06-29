@@ -830,10 +830,10 @@ function citationsFromPayload(
         seenAt: now,
         provider,
         title: stringValue(pick("title")) || undefined,
-        sourceUrl:
-          stringValue(pick("source_url")) ||
-          (isUrl(source) ? source : undefined),
-        pdfUrl: stringValue(pick("pdf_url")) || undefined,
+        // Only ever surface http(s) URLs: corpus metadata is partly external (ingested papers,
+        // curated manifests), so a `javascript:`/`data:` source_url must never reach an href.
+        sourceUrl: httpUrl(pick("source_url")) ?? (isUrl(source) ? source : undefined),
+        pdfUrl: httpUrl(pick("pdf_url")),
         localPdfPath: stringValue(pick("local_pdf_path")) || undefined,
         sourcePath: stringValue(pick("source_path")) || undefined,
         tags: stringList(pick("tags")),
@@ -869,6 +869,12 @@ function normalizeProvider(
 
 function isUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
+}
+
+// Returns the value only when it is a safe http(s) URL — never a javascript:/data: scheme.
+function httpUrl(value: unknown): string | undefined {
+  const text = stringValue(value).trim();
+  return isUrl(text) ? text : undefined;
 }
 
 function stringList(value: unknown): string[] {
