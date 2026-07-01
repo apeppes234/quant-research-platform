@@ -56,6 +56,7 @@ def default_rubric_markdown() -> str:
         "# Quant strategy anti-overfit rubric\n\n"
         "A candidate is satisfied only if all five independently gradeable criteria pass.\n\n"
         f"{rows}\n\n"
-        "Use max_iterations=5. Every iteration that evaluates the sealed holdout must append a variant "
+        "Use max_iterations=3 unless more convergence room is explicitly requested. Every iteration that "
+        "evaluates the sealed holdout must append a variant "
         "entry to the data-snooping ledger and count toward the Deflated Sharpe denominator."
     )

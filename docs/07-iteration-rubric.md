@@ -21,7 +21,8 @@ the artifacts on the file bus (`results.json`, `audit.json`, the data manifest, 
 
 A candidate must satisfy **all five** to be `satisfied`.
 
-`max_iterations`: start at **5** (default is 3; max 20). Too many iterations against a fixed holdout is
+`max_iterations`: **default 3** (max 20); raise it only when a run genuinely needs more convergence room.
+Too many iterations against a fixed holdout is
 itself a snooping risk — every iteration that touches the holdout must be logged to the ledger and counted
 in the deflated-Sharpe denominator (docs/08).
 

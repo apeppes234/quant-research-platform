@@ -74,7 +74,7 @@ class SessionManager:
         *,
         description: str,
         rubric: str,
-        max_iterations: int = 5,
+        max_iterations: int = 3,
     ) -> None:
         await self.ensure_stream(session_id)
         await self._send_event(

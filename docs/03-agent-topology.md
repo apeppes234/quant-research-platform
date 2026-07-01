@@ -16,15 +16,16 @@ default (`claude-opus-4-8`) unless a cheaper tier is clearly adequate.
 | **Data agent** | `specialists/data.agent.yaml` | `claude-haiku-4-5` | QC history/datasets MCP, FRED/ALFRED, EDGAR (PIT-guarded) | Pulls point-in-time data; writes `features.parquet` etc. |
 | **Feature agent** | `specialists/feature.agent.yaml` | `claude-sonnet-4-6` | QC Jupyter/QuantBook cells, `search_knowledge` | Builds features in PIT research; validates signal quality. |
 | **Modeling agent** | `specialists/modeling.agent.yaml` | `claude-opus-4-8` (high effort) | **contract + validator**, `search_knowledge`, QC `create_compile` | Authors `algo.py` to the contract; self-validates before compile. |
-| **Backtest agent** | `specialists/backtest.agent.yaml` | `claude-opus-4-8` | QC `create_backtest` / `read_backtest*` | Runs the backtest on QC; reads results/charts/orders/insights. |
+| **Backtest agent** | `specialists/backtest.agent.yaml` | `claude-sonnet-4-6` | QC `create_backtest` / `read_backtest*` | Runs the backtest on QC; reads results/charts/orders/insights. |
 | **Risk / Bias Auditor** | `specialists/risk-auditor.agent.yaml` | `claude-opus-4-8` (fresh context) | read artifacts, bias-check; snooping **ledger** memory store in Phase 4 | Independent look-ahead/snooping audit; writes `audit.json`. |
 | **Report agent** | `specialists/report.agent.yaml` | `claude-sonnet-4-6` | read artifacts, Skills (`pdf`/`docx`) | Produces the final report to `/mnt/session/outputs/`. |
 
 ## Why these model choices
 
-- **Opus 4.8** for the coordinator and the correctness-critical agents (Modeling, Backtest, Risk) — long-
-  horizon agentic work + bug-finding. Run Modeling at `effort: high`/`xhigh`.
-- **Sonnet 4.6** for the "judgment but high-volume" agents (Market, Feature, Report).
+- **Opus 4.8** for the coordinator and the correctness-critical authoring/audit agents (Modeling, Risk) —
+  long-horizon agentic work + bug-finding. Run Modeling at `effort: high`/`xhigh`.
+- **Sonnet 4.6** for the "judgment but high-volume" agents (Market, Feature, Report) and the Backtest agent,
+  whose work is mechanical tool-driving (compile/backtest, read results) rather than open-ended authoring.
 - **Haiku 4.5** for cheap retrieval/IO (Paper triage, Data pulls), escalating Paper to Opus for deep reads.
 - The **Risk Auditor runs in a fresh thread** (its own context window) so its audit isn't anchored by the
   Modeling agent's rationalizations.
