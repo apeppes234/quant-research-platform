@@ -29,6 +29,39 @@ except ImportError:  # pragma: no cover - local MCP image fallback
         return "[" + ",".join(str(value) for value in vector) + "]"
 
 
+# Snippet caps keep search_knowledge payloads bounded. Un-capped, a single retrieval could
+# dump whole files (the contract fallback) or 8+ full chunks into every agent turn — the biggest
+# per-query token sink. Contract chunks get more room (agents author against them); everything
+# else is snippet-sized. Tunable via env without a redeploy of callers.
+_SNIPPET_CHARS = int(os.getenv("KNOWLEDGE_SNIPPET_CHARS", "1600"))
+_CONTRACT_SNIPPET_CHARS = int(os.getenv("KNOWLEDGE_CONTRACT_SNIPPET_CHARS", "4000"))
+_MAX_K = int(os.getenv("KNOWLEDGE_MAX_K", "12"))
+
+
+def _snippet(text: str, corpus: str | None) -> tuple[str, int | None]:
+    """Bound a chunk to a readable snippet. Returns (snippet, full_length_if_truncated)."""
+    text = text or ""
+    cap = _CONTRACT_SNIPPET_CHARS if corpus == "contract" else _SNIPPET_CHARS
+    if len(text) <= cap:
+        return text, None
+    # Prefer a line break, then a word break, so we don't sever mid-token.
+    cut = text.rfind("\n", 0, cap)
+    if cut < cap // 2:
+        cut = text.rfind(" ", 0, cap)
+    if cut < cap // 2:
+        cut = cap
+    return text[:cut].rstrip() + "\n…[truncated]", len(text)
+
+
+def _bound_chunk(row: dict) -> dict:
+    """Apply the snippet cap to one result row, recording truncation in metadata."""
+    snippet, full_length = _snippet(str(row.get("text", "")), row.get("corpus"))
+    if full_length is None:
+        return row
+    metadata = {**(row.get("metadata") or {}), "truncated": True, "full_length": full_length}
+    return {**row, "text": snippet, "metadata": metadata}
+
+
 REPO_ROOT = next(
     (
         candidate
@@ -58,18 +91,18 @@ async def search(
     if not query.strip():
         return []
 
-    limit = max(1, min(k, 20))
+    limit = max(1, min(k, _MAX_K))
     if os.getenv("VECTORDB_KIND", "pgvector") == "pgvector" and _has_vector_db_config():
         try:
             rows = _search_pgvector(query, corpus=corpus, tags=tags or [], limit=limit)
             if rows:
-                return rows
+                return [_bound_chunk(row) for row in rows]
         except Exception as exc:  # pragma: no cover - depends on external DB
             if os.getenv("KNOWLEDGE_STRICT_VECTORDB", "").lower() == "true":
                 raise
             return [_fallback_error(query, corpus, tags, exc)]
 
-    return _search_fallback(query, corpus=corpus, tags=tags or [], limit=limit)
+    return [_bound_chunk(row) for row in _search_fallback(query, corpus=corpus, tags=tags or [], limit=limit)]
 
 
 def _search_pgvector(query: str, *, corpus: str | None, tags: list[str], limit: int) -> list[dict]:
