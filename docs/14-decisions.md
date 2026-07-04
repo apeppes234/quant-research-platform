@@ -32,7 +32,7 @@ the websocket. See docs/10.
 
 ### D6 — Iteration rubric (the 5 gates)
 Holdout Sharpe > 1.0; |in-sample − holdout Sharpe| < 0.5; zero look-ahead findings; Deflated Sharpe > 0;
-max drawdown < 25%. `max_iterations` = 5. Reasonable defaults — tune against real runs. See docs/07.
+max drawdown < 25%. `max_iterations` default = 3 (max 20). Reasonable defaults — tune against real runs. See docs/07.
 
 ### D7 — Trust tiers are tool-enforced
 PIT-safe sources (QC/FRED-ALFRED/EDGAR/GDELT) only on the build/test agents; idea-only web search only on

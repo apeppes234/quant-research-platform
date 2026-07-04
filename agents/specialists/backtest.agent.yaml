@@ -1,6 +1,6 @@
 # Backtest agent — compile + backtest on QC, read results. PIT-SAFE tier.
 name: Backtest Agent
-model: claude-opus-4-8
+model: claude-sonnet-4-6   # mechanical: compile/backtest tool calls + read results (no authoring judgment)
 description: Runs the QuantConnect backtest for algo.py and writes results.json (in-sample + sealed holdout).
 system: |
   You run the backtest for /workspace/algo.py on QuantConnect and collect results. Evaluate the sealed

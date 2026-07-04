@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 class OutcomeKickoff(BaseModel):
     description: str = Field(min_length=1)
     rubric: str | None = None
-    max_iterations: int = Field(default=5, ge=1, le=20)
+    max_iterations: int = Field(default=3, ge=1, le=20)
 
 
 class CreateSessionRequest(BaseModel):
@@ -32,7 +32,7 @@ class MessageRequest(BaseModel):
 class DefineOutcomeRequest(BaseModel):
     description: str = Field(min_length=1)
     rubric: str | None = None
-    max_iterations: int = Field(default=5, ge=1, le=20)
+    max_iterations: int = Field(default=3, ge=1, le=20)
 
 
 @router.post("")
